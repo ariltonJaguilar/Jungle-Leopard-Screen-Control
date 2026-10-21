@@ -147,6 +147,7 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
         Loaded += (_, _) => RebuildRenderer();
         ReloadLayers();
         RebuildRenderer();
+        AppLanguage.Apply(this);
     }
 
     private void LoadFontFamilies()
@@ -224,7 +225,7 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             {
                 string name = Text(node["label"]);
                 string title = string.IsNullOrWhiteSpace(name) ? FriendlyType(type) : name;
-                string subtitle = FriendlyType(type) + (nodeDepth > 0 ? " • nível " + (nodeDepth + 1) : string.Empty);
+                string subtitle = FriendlyType(type) + (nodeDepth > 0 ? " • " + AppLanguage.Translate("nível") + " " + (nodeDepth + 1) : string.Empty);
                 _layers.Add(new LayerItem(node, children, nodeDepth, title, subtitle, _layers, _steamLayoutMode));
             }
             string id = Text(node["id"]);
@@ -1083,7 +1084,7 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             if (allowed.Length == 0) continue;
             DataSourceBox.Items.Add(new ComboBoxItem
             {
-                Content = label,
+                Content = AppLanguage.Translate(label),
                 IsEnabled = false,
                 IsHitTestVisible = false,
                 FontWeight = System.Windows.FontWeights.SemiBold
@@ -1091,7 +1092,7 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             foreach (string source in allowed)
                 DataSourceBox.Items.Add(new ComboBoxItem
                 {
-                    Content = DataSourceLabels.TryGetValue(source, out string? sourceLabel) ? sourceLabel : source,
+                    Content = AppLanguage.Translate(DataSourceLabels.TryGetValue(source, out string? sourceLabel) ? sourceLabel : source),
                     Tag = source
                 });
         }
@@ -1101,14 +1102,14 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
         {
             DataSourceBox.Items.Add(new ComboBoxItem
             {
-                Content = "Outra fonte de dados (mantida do tema)",
+                Content = AppLanguage.Translate("Outra fonte de dados (mantida do tema)"),
                 IsEnabled = false,
                 IsHitTestVisible = false,
                 FontWeight = System.Windows.FontWeights.SemiBold
             });
             DataSourceBox.Items.Add(new ComboBoxItem
             {
-                Content = $"Fonte personalizada: {selectedSource}",
+                Content = AppLanguage.Translate("Fonte personalizada: " + selectedSource),
                 Tag = selectedSource
             });
         }
@@ -1348,8 +1349,8 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Escolher mídia de fundo",
-            Filter = "Mídia compatível|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.mp4;*.m4v;*.wmv;*.avi;*.mov;*.mkv;*.webm|Todos os arquivos|*.*",
+            Title = AppLanguage.Translate("Escolher mídia de fundo"),
+            Filter = AppLanguage.Translate("Mídia compatível|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.mp4;*.m4v;*.wmv;*.avi;*.mov;*.mkv;*.webm|Todos os arquivos|*.*"),
             CheckFileExists = true,
             Multiselect = false
         };
@@ -2488,8 +2489,8 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Adicionar imagem ao tema",
-            Filter = "Mídia compatível|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.mp4;*.m4v;*.wmv;*.avi;*.mov;*.mkv;*.webm|Imagens|*.png;*.jpg;*.jpeg;*.bmp;*.gif|Vídeos|*.mp4;*.m4v;*.wmv;*.avi;*.mov;*.mkv;*.webm|Todos os arquivos|*.*",
+            Title = AppLanguage.Translate("Adicionar imagem ao tema"),
+            Filter = AppLanguage.Translate("Mídia compatível|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.mp4;*.m4v;*.wmv;*.avi;*.mov;*.mkv;*.webm|Imagens|*.png;*.jpg;*.jpeg;*.bmp;*.gif|Vídeos|*.mp4;*.m4v;*.wmv;*.avi;*.mov;*.mkv;*.webm|Todos os arquivos|*.*"),
             CheckFileExists = true,
             Multiselect = false
         };
@@ -2553,7 +2554,7 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
                 }
                 selectedLayer.Title = Text(selectedLayer.Node["label"]);
                 ReloadLayers(selectedLayer.Node);
-                StatusText.Text = (video ? (preparedVideo?.Status ?? "Video substituido.") : "Imagem substituida.") + " A nova midia sera embutida no .ht ao salvar.";
+                StatusText.Text = (video ? (preparedVideo?.Status ?? "Vídeo substituído.") : "Imagem substituída.") + " A nova mídia será embutida no .ht ao salvar.";
                 RebuildRenderer();
                 return;
             }
@@ -2586,12 +2587,12 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             root.Add(node);
             UpdateSiblingOrder(root);
             ReloadLayers(node);
-            StatusText.Text = (video ? (preparedVideo?.Status ?? "Video adicionado.") : "Imagem adicionada.") + " A midia sera embutida no .ht ao salvar.";
+            StatusText.Text = (video ? (preparedVideo?.Status ?? "Vídeo adicionado.") : "Imagem adicionada.") + " A mídia será embutida no .ht ao salvar.";
             RebuildRenderer(refreshAssets: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or ExternalException or InvalidOperationException or System.ComponentModel.Win32Exception or TimeoutException)
         {
-            System.Windows.MessageBox.Show(Window.GetWindow(this), ex.Message, "Não foi possível adicionar a imagem", MessageBoxButton.OK, MessageBoxImage.Error);
+            AppMessageBox.Show(Window.GetWindow(this), ex.Message, "Não foi possível adicionar a imagem", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -2802,7 +2803,8 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             image.Freeze();
             PreviewImage.Source = image;
             RefreshSelectionGeometry();
-            if (StatusText.Text.StartsWith("Prévia indisponível:", StringComparison.Ordinal))
+            if (StatusText.Text.StartsWith("Prévia indisponível:", StringComparison.Ordinal)
+                || StatusText.Text.StartsWith("Preview unavailable:", StringComparison.Ordinal))
                 StatusText.Text = "Prévia ao vivo usando os sensores disponíveis neste PC.";
         }
         catch (Exception ex) when (ex is ArgumentException or ExternalException or InvalidOperationException or IOException)
@@ -3057,12 +3059,12 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
         catch (InvalidOperationException) { return value.ToJsonString(); }
     }
 
-    private static string FriendlyType(string type) => type.ToLowerInvariant() switch
+    private static string FriendlyType(string type) => AppLanguage.Translate(type.ToLowerInvariant() switch
     {
         "text" => "Texto", "data" => "Indicador de dados", "lyric" => "Letra atual", "block" => "Bloco", "progress" => "Barra de progresso",
         "arc" => "Medidor circular", "linechart" => "Gráfico de linha", "audiowave" or "audio" => "Espectro de áudio", "songdisplay" => "Mídia e letras", "image" or "media" => "Imagem",
         "group" => "Grupo", _ => string.IsNullOrWhiteSpace(type) ? "Componente" : type
-    };
+    });
 
     private readonly record struct LayerGeometry(double X, double Y, double Width, double Height, double PivotX, double PivotY);
 
@@ -3099,7 +3101,7 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(VisibilityTooltip)));
             }
         }
-        public string VisibilityTooltip => IsVisible ? "Ocultar camada" : "Mostrar camada";
+        public string VisibilityTooltip => AppLanguage.Translate(IsVisible ? "Ocultar camada" : "Mostrar camada");
         public bool IsLocked
         {
             get => ReadBool(Node["_editorLocked"]) || IsLockedByAncestor;
@@ -3130,9 +3132,9 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
                 return false;
             }
         }
-        public string LockTooltip => IsLockedByAncestor
+        public string LockTooltip => AppLanguage.Translate(IsLockedByAncestor
             ? "Bloqueada pelo grupo; desbloqueie o grupo para mover"
-            : ReadBool(Node["_editorLocked"]) ? "Desbloquear camada para mover" : "Bloquear camada para impedir movimento";
+            : ReadBool(Node["_editorLocked"]) ? "Desbloquear camada para mover" : "Bloquear camada para impedir movimento");
 
         private void NotifyLockStateChanged()
         {

@@ -6,6 +6,8 @@ Aplicativo Windows de código aberto para criar temas, monitorar dados do comput
 
 ## Funcionalidades
 
+- A interface usa português quando o idioma de exibição do Windows é português e inglês nos demais casos.
+
 ### Cover Studio e temas `.ht`
 
 - Mantém uma biblioteca local de temas, além de permitir pesquisar e baixar temas do catálogo online.

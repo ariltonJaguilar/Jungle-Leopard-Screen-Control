@@ -86,6 +86,9 @@ public partial class LcdStudioWindow : Window
         _pages["integrations"] = BuildIntegrationsPage();
         _pages["settings"] = BuildSettingsPage();
         ShowCoverStudio();
+        foreach (UIElement page in _pages.Values)
+            AppLanguage.Apply(page);
+        AppLanguage.Apply(this);
         _statusTimer.Tick += (_, _) => RefreshSharedStatus();
         _placementSaveTimer.Tick += (_, _) =>
         {
@@ -203,7 +206,8 @@ public partial class LcdStudioWindow : Window
             _multiScreenStatus!.Text = _controller.MultiScreenStatusText;
             _multiCompositionStatus!.Text = _controller.MultiScreenCompositionStatusText;
             string[] ports = _controller.MultiScreenPanelPorts;
-            string[] items = ports.Select(port => $"{port}  ·  Painel LCD Jungle Leopard").ToArray();
+            string panelLabel = AppLanguage.Translate("Painel LCD Jungle Leopard");
+            string[] items = ports.Select(port => $"{port}  ·  {panelLabel}").ToArray();
             if (!_panelItems.SequenceEqual(items))
             {
                 int selected = Math.Clamp(_panelList.SelectedIndex, 0, Math.Max(0, items.Length - 1));
@@ -326,7 +330,7 @@ public partial class LcdStudioWindow : Window
 
         _compositionLayout = new ComboBox { MinWidth = 280, HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
         foreach (string layout in new[] { "Espelhar todos", "Compor na horizontal", "Compor na vertical", "Compor livremente" })
-            _compositionLayout.Items.Add(layout);
+            _compositionLayout.Items.Add(AppLanguage.Translate(layout));
         _compositionLayout.SelectedIndex = _controller.CompositionLayoutIndex;
         _compositionLayout.SelectionChanged += (_, _) =>
         {
@@ -367,7 +371,8 @@ public partial class LcdStudioWindow : Window
         var rotationStack = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
         rotationStack.Children.Add(SectionLabel("ORIENTAÇÃO DESTE PAINEL"));
         _panelRotation = new ComboBox { MinWidth = 260, HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
-        foreach (string rotation in new[] { "Usar orientação global", "0°", "90° horário", "180°", "270° horário" }) _panelRotation.Items.Add(rotation);
+        foreach (string rotation in new[] { "Usar orientação global", "0°", "90° horário", "180°", "270° horário" })
+            _panelRotation.Items.Add(AppLanguage.Translate(rotation));
         _panelRotation.SelectionChanged += (_, _) => ApplyCropSettingsFromView();
         rotationStack.Children.Add(_panelRotation);
         cropStack.Children.Add(rotationStack);
@@ -599,7 +604,7 @@ public partial class LcdStudioWindow : Window
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
         {
-            MessageBox.Show(this, "N\u00E3o foi poss\u00EDvel abrir o layout Steam: " + ex.Message,
+            AppMessageBox.Show(this, "N\u00E3o foi poss\u00EDvel abrir o layout Steam: " + ex.Message,
                 "Integra\u00E7\u00E3o Steam", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
@@ -617,7 +622,7 @@ public partial class LcdStudioWindow : Window
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
                 {
-                    MessageBox.Show(this, "N\u00E3o foi poss\u00EDvel salvar o layout Steam: " + ex.Message,
+                    AppMessageBox.Show(this, "N\u00E3o foi poss\u00EDvel salvar o layout Steam: " + ex.Message,
                         "Integra\u00E7\u00E3o Steam", MessageBoxButton.OK, MessageBoxImage.Error);
                     return;
                 }
@@ -681,7 +686,7 @@ public partial class LcdStudioWindow : Window
         var stack = new StackPanel();
         stack.Children.Add(new TextBlock { Text = label, Foreground = Brush("MutedBrush"), Margin = new Thickness(0, 0, 0, 7) });
         var combo = new ComboBox { MinWidth = 260, HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
-        foreach (string option in options) combo.Items.Add(new ComboBoxItem { Content = option });
+        foreach (string option in options) combo.Items.Add(new ComboBoxItem { Content = AppLanguage.Translate(option) });
         stack.Children.Add(combo);
         AddCard(parent, stack);
         return combo;

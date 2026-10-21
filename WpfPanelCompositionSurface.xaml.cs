@@ -21,7 +21,11 @@ public partial class WpfPanelCompositionSurface : System.Windows.Controls.UserCo
     internal event Action<string>? PanelSelected;
     internal event Action<string, int, int>? PanelMoved;
 
-    public WpfPanelCompositionSurface() => InitializeComponent();
+    public WpfPanelCompositionSurface()
+    {
+        InitializeComponent();
+        AppLanguage.Apply(this);
+    }
 
     internal void SetPanels(IEnumerable<PanelCanvasItem> panels, string? selectedPort, bool freeLayout)
     {

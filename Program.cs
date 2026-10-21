@@ -331,7 +331,7 @@ internal sealed class LcdStudioBackend
             .Select(spec =>
             {
                 BackendChoiceState selector = _sensorSelectionControls[spec.Key];
-                return (spec.Group, spec.Label, spec.Key,
+                return (AppLanguage.Translate(spec.Group), AppLanguage.Translate(spec.Label), spec.Key,
                     selector.Items.Cast<object>().Select(item => selector.GetItemText(item) ?? string.Empty).ToArray(),
                     Math.Max(0, selector.SelectedIndex));
             })
@@ -1289,9 +1289,9 @@ internal sealed class LcdStudioBackend
 
     private static string GetCompositionLayoutName(int layout) => layout switch
     {
-        1 => "horizontal",
-        2 => "vertical",
-        _ => "espelhado"
+        1 => AppLanguage.Translate("horizontal"),
+        2 => AppLanguage.Translate("vertical"),
+        _ => AppLanguage.Translate("espelhado")
     };
 
     private void StopDesktopCapture(bool restoreSavedVisual)
@@ -1727,8 +1727,8 @@ internal sealed class LcdStudioBackend
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = standby ? "Escolha a mídia de espera" : "Escolha a mídia de inicialização",
-            Filter = "Mídia do painel|*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.webp;*.rgb565|Todos os arquivos|*.*",
+            Title = AppLanguage.Translate(standby ? "Escolha a mídia de espera" : "Escolha a mídia de inicialização"),
+            Filter = AppLanguage.Translate("Mídia do painel|*.jpg;*.jpeg;*.png;*.bmp;*.gif;*.webp;*.rgb565|Todos os arquivos|*.*"),
             CheckFileExists = true,
             Multiselect = false
         };
@@ -1990,8 +1990,8 @@ internal sealed class LcdStudioBackend
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Selecionar FFmpeg para normalizar vídeos de temas",
-            Filter = "Executável FFmpeg|ffmpeg.exe|Executáveis|*.exe|Todos os arquivos|*.*",
+            Title = AppLanguage.Translate("Selecionar FFmpeg para normalizar vídeos de temas"),
+            Filter = AppLanguage.Translate("Executável FFmpeg|ffmpeg.exe|Executáveis|*.exe|Todos os arquivos|*.*"),
             CheckFileExists = true,
             Multiselect = false
         };
@@ -2361,8 +2361,8 @@ internal sealed class LcdStudioBackend
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Escolha uma imagem para a tela",
-            Filter = "Imagens|*.jpg;*.jpeg;*.png;*.bmp;*.gif|Todos os arquivos|*.*",
+            Title = AppLanguage.Translate("Escolha uma imagem para a tela"),
+            Filter = AppLanguage.Translate("Imagens|*.jpg;*.jpeg;*.png;*.bmp;*.gif|Todos os arquivos|*.*"),
             CheckFileExists = true,
             Multiselect = false
         };

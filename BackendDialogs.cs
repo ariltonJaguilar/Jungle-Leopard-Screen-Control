@@ -15,6 +15,8 @@ internal static class BackendMessageBox
     internal static DialogResult Show(Window? owner, string text, string caption, MessageBoxButtons buttons, MessageBoxIcon icon,
         MessageBoxDefaultButton defaultButton = MessageBoxDefaultButton.Button1)
     {
+        text = AppLanguage.Translate(text);
+        caption = AppLanguage.Translate(caption);
         MessageBoxButton wpfButtons = buttons == MessageBoxButtons.YesNo ? MessageBoxButton.YesNo : MessageBoxButton.OK;
         MessageBoxImage wpfIcon = icon switch
         {
@@ -42,4 +44,13 @@ internal static class BackendMessageBox
             _ => DialogResult.None
         };
     }
+}
+
+internal static class AppMessageBox
+{
+    internal static MessageBoxResult Show(Window? owner, string text, string caption, MessageBoxButton buttons,
+        MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.OK)
+        => owner is null
+            ? System.Windows.MessageBox.Show(AppLanguage.Translate(text), AppLanguage.Translate(caption), buttons, icon, defaultResult)
+            : System.Windows.MessageBox.Show(owner, AppLanguage.Translate(text), AppLanguage.Translate(caption), buttons, icon, defaultResult);
 }

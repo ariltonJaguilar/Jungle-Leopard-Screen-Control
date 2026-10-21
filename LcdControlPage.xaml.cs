@@ -27,6 +27,7 @@ public partial class LcdControlPage : System.Windows.Controls.UserControl
             _refreshTimer.Start();
         };
         Unloaded += (_, _) => _refreshTimer.Stop();
+        AppLanguage.Apply(this);
     }
 
     private void SyncOptionsFromController()

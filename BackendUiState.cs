@@ -33,7 +33,8 @@ internal sealed class BackendChoiceState
     public int SelectedIndex { get; set; } = -1;
     public bool Enabled { get; set; } = true;
     public object? SelectedItem => SelectedIndex >= 0 && SelectedIndex < Items.Count ? Items[SelectedIndex] : null;
-    public string? GetItemText(object? item) => item?.ToString();
+    public string? GetItemText(object? item)
+        => item?.ToString() is string text ? AppLanguage.Translate(text) : null;
     public void BeginUpdate() { }
     public void EndUpdate() { }
 }

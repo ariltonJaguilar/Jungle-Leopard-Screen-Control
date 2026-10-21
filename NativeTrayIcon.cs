@@ -62,9 +62,9 @@ internal sealed class NativeTrayIcon : IDisposable
         {
             Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint
         };
-        _menu.Items.Add(new MenuItem { Header = "Abrir Jungle Leopard Screen Control", Command = new RelayCommand(restore) });
+        _menu.Items.Add(new MenuItem { Header = AppLanguage.Translate("Abrir Jungle Leopard Screen Control"), Command = new RelayCommand(restore) });
         _menu.Items.Add(new Separator());
-        _menu.Items.Add(new MenuItem { Header = "Sair", Command = new RelayCommand(exit) });
+        _menu.Items.Add(new MenuItem { Header = AppLanguage.Translate("Sair"), Command = new RelayCommand(exit) });
     }
 
     internal bool SetVisible(bool visible)
@@ -85,7 +85,7 @@ internal sealed class NativeTrayIcon : IDisposable
         Flags = Message | Icon | Tip,
         CallbackMessage = CallbackMessage,
         IconHandle = _trayIcon?.Handle ?? LoadIcon(IntPtr.Zero, (IntPtr)32512),
-        Tip = "Jungle Leopard Screen Control",
+        Tip = AppLanguage.Translate("Jungle Leopard Screen Control"),
         Info = string.Empty,
         InfoTitle = string.Empty
     };

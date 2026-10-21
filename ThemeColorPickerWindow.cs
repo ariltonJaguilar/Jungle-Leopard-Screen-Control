@@ -176,6 +176,7 @@ internal sealed class ThemeColorPickerWindow : Window
         layout.Children.Add(buttons);
 
         UpdatePreview();
+        AppLanguage.Apply(this);
     }
 
     public string SelectedColorText { get; private set; }

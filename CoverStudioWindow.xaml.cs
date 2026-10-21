@@ -59,6 +59,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
         Action<int, int> setScreenOptions)
     {
         InitializeComponent();
+        PreviewTitle.Text = AppLanguage.Translate(PreviewTitle.Text);
         _applyTheme = applyTheme;
         _rotation = rotation;
         _getScreenOptions = getScreenOptions;
@@ -75,6 +76,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
         RefreshLibrary();
         SyncScreenOptionsFromController();
         UpdateOrientation();
+        AppLanguage.Apply(this);
     }
 
     private void SyncScreenOptionsFromController()
@@ -340,7 +342,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
         CatalogEmpty.Visibility = Visibility.Visible;
         PreviewImage.Source = null;
         PreviewPlaceholder.Visibility = Visibility.Visible;
-        PreviewTitle.Text = "Catálogo online";
+        PreviewTitle.Text = AppLanguage.Translate("Catálogo online");
         PreviewDetails.Text = "Pesquisando temas compatíveis com o Pro Flow 360.";
         SearchButtonState(false);
         StatusText.Text = "Conectando ao catálogo oficial…";
@@ -589,8 +591,8 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Importar tema Jungle Leopard",
-            Filter = "Temas Jungle Leopard (*.ht;*.zip;*.json)|*.ht;*.zip;*.json|Pacotes .ht (*.ht)|*.ht|Arquivos ZIP (*.zip)|*.zip|Temas instalados (*.json)|*.json",
+            Title = AppLanguage.Translate("Importar tema Jungle Leopard"),
+            Filter = AppLanguage.Translate("Temas Jungle Leopard (*.ht;*.zip;*.json)|*.ht;*.zip;*.json|Pacotes .ht (*.ht)|*.ht|Arquivos ZIP (*.zip)|*.zip|Temas instalados (*.json)|*.json"),
             CheckFileExists = true,
             Multiselect = false
         };
@@ -614,7 +616,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or JsonException)
         {
-            System.Windows.MessageBox.Show(Window.GetWindow(this), ex.Message,
+            AppMessageBox.Show(Window.GetWindow(this), ex.Message,
                 "Tema não reconhecido", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -629,7 +631,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or ExternalException)
         {
-            System.Windows.MessageBox.Show(Window.GetWindow(this), ex.Message,
+            AppMessageBox.Show(Window.GetWindow(this), ex.Message,
                 "Não foi possível criar o tema", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -651,7 +653,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or ExternalException or JsonException)
         {
-            System.Windows.MessageBox.Show(Window.GetWindow(this), ex.Message,
+            AppMessageBox.Show(Window.GetWindow(this), ex.Message,
                 "Não foi possível salvar o tema", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -661,8 +663,8 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
         if (_selectedLocal?.Package is not ThemePackage package) return;
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
-            Title = "Exportar pacote Jungle Leopard",
-            Filter = "Pacote Jungle Leopard (*.ht)|*.ht",
+            Title = AppLanguage.Translate("Exportar pacote Jungle Leopard"),
+            Filter = AppLanguage.Translate("Pacote Jungle Leopard (*.ht)|*.ht"),
             FileName = Path.GetFileNameWithoutExtension(_selectedLocal.Path ?? package.Name) + ".ht",
             AddExtension = true,
             DefaultExt = "ht"
@@ -699,7 +701,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
     private void DeleteClicked(object sender, RoutedEventArgs e)
     {
         if (_selectedLocal is not { Path: string path, IsInstalledTheme: false } item) return;
-        MessageBoxResult answer = System.Windows.MessageBox.Show(Window.GetWindow(this),
+        MessageBoxResult answer = AppMessageBox.Show(Window.GetWindow(this),
             $"Excluir “{item.Name}” da biblioteca local? Essa ação remove o arquivo .ht.",
             "Excluir tema", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
         if (answer != MessageBoxResult.Yes) return;
@@ -935,7 +937,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
         DeleteButton.IsEnabled = false;
         PreviewImage.Source = null;
         PreviewPlaceholder.Visibility = Visibility.Visible;
-        PreviewTitle.Text = _isCatalogView ? "Catálogo online" : "Temas";
+        PreviewTitle.Text = AppLanguage.Translate(_isCatalogView ? "Catálogo online" : "Temas");
         PreviewDetails.Text = _isCatalogView
             ? "Pesquise, visualize e instale temas compatíveis."
             : "Importe um .ht, crie um tema ou explore o catálogo online.";
