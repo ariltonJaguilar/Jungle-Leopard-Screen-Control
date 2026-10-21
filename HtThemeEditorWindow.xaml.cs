@@ -159,6 +159,25 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             FontFamilyBox.Items.Add(family);
     }
 
+    private void SelectFontFamily(string value)
+    {
+        string family = value.Trim().Trim('"', '\'');
+        if (family.Length == 0)
+            family = "Arial";
+
+        string? installedFamily = FontFamilyBox.Items.Cast<string>()
+            .FirstOrDefault(item => item.Equals(family, StringComparison.OrdinalIgnoreCase));
+        if (installedFamily is null)
+        {
+            // Keep an imported theme's font visible and unchanged even if this PC
+            // does not have that family installed.
+            FontFamilyBox.Items.Add(family);
+            installedFamily = family;
+        }
+
+        FontFamilyBox.SelectedItem = installedFamily;
+    }
+
     public byte[]? PackageBytes { get; private set; }
     public string ThemeName => ThemeNameBox.Text.Trim();
     internal event EventHandler? SaveRequested;
@@ -355,7 +374,8 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             if (properties is null)
             {
                 XBox.Text = YBox.Text = WidthBox.Text = HeightBox.Text = RotateBox.Text = string.Empty;
-                ContentBox.Text = ColorBox.Text = SecondColorBox.Text = OutlineColorBox.Text = TrackColorBox.Text = FontFamilyBox.Text = FontSizeBox.Text = RangeMinBox.Text = RangeMaxBox.Text = string.Empty;
+                ContentBox.Text = ColorBox.Text = SecondColorBox.Text = OutlineColorBox.Text = TrackColorBox.Text = FontSizeBox.Text = RangeMinBox.Text = RangeMaxBox.Text = string.Empty;
+                FontFamilyBox.SelectedIndex = -1;
                 BorderRadiusBox.Text = BorderWidthBox.Text = StrokeWidthBox.Text = GapDegreeBox.Text = PrecisionBox.Text = ClockFormatBox.Text = string.Empty;
                 TextStrokeWidthBox.Text = TextStrokeColorBox.Text = TextShadowOffsetXBox.Text = TextShadowOffsetYBox.Text = TextShadowBlurBox.Text = TextShadowColorBox.Text = string.Empty;
                 HideUnitCheck.IsChecked = IsLyricCheck.IsChecked = ShowAreaCheck.IsChecked = ShowXYCheck.IsChecked = ShowSplitLinesCheck.IsChecked = false;
@@ -399,9 +419,9 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
                     "songdisplay" => Text(properties["backgroundColor"]).Length == 0 ? "0,0,0,0" : Text(properties["backgroundColor"]),
                     _ => string.Empty
                 };
-                FontFamilyBox.Text = songDisplay
+                SelectFontFamily(songDisplay
                     ? Text(properties["lyricFontFamily"]).Length == 0 ? "Arial" : Text(properties["lyricFontFamily"])
-                    : Text(properties["fontFamily"]);
+                    : Text(properties["fontFamily"]));
                 BoldCheck.IsChecked = IsBoldFontWeight(properties["fontWeight"])
                     || Text(properties["bold"]).Equals("true", StringComparison.OrdinalIgnoreCase)
                     || HasFontStyle(properties["fontStyle"], "bold");
@@ -658,7 +678,8 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             DataRangePanel.Visibility = Visibility.Collapsed;
             DataSourceBox.SelectedIndex = -1;
             LayerNameBox.Text = XBox.Text = YBox.Text = WidthBox.Text = HeightBox.Text = RotateBox.Text = string.Empty;
-            ContentBox.Text = ColorBox.Text = SecondColorBox.Text = OutlineColorBox.Text = TrackColorBox.Text = FontFamilyBox.Text = FontSizeBox.Text = RangeMinBox.Text = RangeMaxBox.Text = string.Empty;
+            ContentBox.Text = ColorBox.Text = SecondColorBox.Text = OutlineColorBox.Text = TrackColorBox.Text = FontSizeBox.Text = RangeMinBox.Text = RangeMaxBox.Text = string.Empty;
+            FontFamilyBox.SelectedIndex = -1;
             BorderRadiusBox.Text = BorderWidthBox.Text = StrokeWidthBox.Text = GapDegreeBox.Text = PrecisionBox.Text = ClockFormatBox.Text = string.Empty;
             TextStrokeWidthBox.Text = TextStrokeColorBox.Text = TextShadowOffsetXBox.Text = TextShadowOffsetYBox.Text = TextShadowBlurBox.Text = TextShadowColorBox.Text = string.Empty;
             BoldCheck.IsChecked = ItalicCheck.IsChecked = false;

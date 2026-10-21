@@ -479,7 +479,7 @@
                         <TextBlock x:Name="TrackColorLabel" Text="Cor do trilho / fundo do gráfico" Foreground="{StaticResource MutedBrush}" />
                         <DockPanel x:Name="TrackColorInputPanel" Margin="0,4,0,12"><Button DockPanel.Dock="Right" Style="{StaticResource EditorColorButton}" Content="…" ToolTip="Escolher cor" Tag="{Binding ElementName=TrackColorBox}" IsEnabled="{Binding ElementName=TrackColorBox, Path=IsEnabled}" Click="PickColorClicked" /><TextBox x:Name="TrackColorBox" Style="{StaticResource EditorTextBox}" TextChanged="LayerPropertyChanged" /></DockPanel>
                         <TextBlock x:Name="FontFamilyLabel" Text="Família da fonte" Foreground="{StaticResource MutedBrush}" />
-                        <ComboBox x:Name="FontFamilyBox" Height="34" Margin="0,4,0,8" IsEditable="True" IsTextSearchEnabled="False" Loaded="ClockFormatBoxLoaded" SelectionChanged="AdvancedSelectionChanged" />
+                        <ComboBox x:Name="FontFamilyBox" Height="34" Margin="0,4,0,8" IsEditable="False" IsTextSearchEnabled="True" SelectionChanged="AdvancedSelectionChanged" />
                         <CheckBox x:Name="BoldCheck" Content="Negrito" Foreground="{StaticResource TextBrush}" Margin="0,0,0,12" Checked="LayerFormattingChanged" Unchecked="LayerFormattingChanged" />
                         <CheckBox x:Name="ItalicCheck" Content="Itálico" Foreground="{StaticResource TextBrush}" Margin="0,0,0,12" Checked="LayerFormattingChanged" Unchecked="LayerFormattingChanged" />
                         <CheckBox x:Name="UnderlineCheck" Content="Sublinhado" Foreground="{StaticResource TextBrush}" Margin="0,0,0,12" Checked="LayerFormattingChanged" Unchecked="LayerFormattingChanged" />

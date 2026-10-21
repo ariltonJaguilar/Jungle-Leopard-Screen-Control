@@ -13,7 +13,7 @@ Aplicativo Windows de código aberto para criar temas, monitorar dados do comput
 - Cria temas novos e edita cópias, preservando os arquivos de origem.
 - Permite adicionar, organizar, ocultar, bloquear, duplicar, agrupar e reordenar camadas.
 - Tipos de camada incluem imagem, vídeo, texto, dado/sensor, bloco de cor, barra, arco, gráfico de linha, espectro de áudio e informações de mídia/letras.
-- Edita posição, tamanho, rotação, fontes, cores, preenchimento, contorno e sombra. No canvas, camadas podem ser selecionadas, movidas, redimensionadas e giradas.
+- Edita posição, tamanho, rotação, família tipográfica (por uma lista suspensa de fontes do Windows), cores, preenchimento, contorno e sombra. Fontes declaradas por temas importados continuam visíveis mesmo quando não estão instaladas. No canvas, camadas podem ser selecionadas, movidas, redimensionadas e giradas.
 - A prévia é renderizada no PC; leituras de hardware podem diferir das leituras disponíveis no computador que executa o painel.
 
 ### Integração com Steam
