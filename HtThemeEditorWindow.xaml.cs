@@ -276,6 +276,12 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             bool dataText = selectedType is "data" or "text";
             bool lyricLayer = selectedType == "lyric";
             bool styledText = dataText || lyricLayer;
+            bool isCurrentLyric = ReadBool(properties?["isLyric"])
+                || Text(properties?["dataSource"]).Equals("lyric_current", StringComparison.OrdinalIgnoreCase);
+            string textTemplate = Text(properties?["text"]);
+            bool dynamicSensorValue = !isCurrentLyric
+                && (selectedType == "data"
+                    || selectedType == "text" && textTemplate.Contains('{') && textTemplate.Contains('}'));
             bool progress = selectedType == "progress";
             bool block = selectedType == "block";
             bool audioWave = selectedType is "audiowave" or "audio";
@@ -344,7 +350,10 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             FontFamilyBox.IsEnabled = editable && !group && (styledText || songDisplay);
             BoldCheck.IsEnabled = ItalicCheck.IsEnabled = editable && !group && styledText;
             FontSizeBox.IsEnabled = editable && !group && (styledText || songDisplay);
-            AlignBox.IsEnabled = editable && !group && styledText;
+            AlignBox.IsEnabled = editable && !group && styledText && !dynamicSensorValue;
+            AlignBox.ToolTip = dynamicSensorValue
+                ? "Valores dinâmicos ficam centralizados na área da camada."
+                : null;
             ContentLabel.Visibility = ContentBox.Visibility = dataText || songDisplay ? Visibility.Visible : Visibility.Collapsed;
             TextAlignmentPanel.Visibility = styledText ? Visibility.Visible : Visibility.Collapsed;
             BoldCheck.Visibility = ItalicCheck.Visibility = styledText ? Visibility.Visible : Visibility.Collapsed;
@@ -458,7 +467,9 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
                 SelectOptionByTag(BorderStyleBox, Text(properties["borderStyle"]).Length == 0 ? "solid" : Text(properties["borderStyle"]));
                 SelectOptionByTag(BlockGradientBox, Text(properties["linearGradient"]));
                 string align = Text(properties["align"]);
-                AlignBox.SelectedIndex = align switch { "center" => 1, "right" => 2, "left" => 0, _ => -1 };
+                AlignBox.SelectedIndex = dynamicSensorValue
+                    ? 1
+                    : align switch { "center" => 1, "right" => 2, "left" => 0, _ => -1 };
                 SelectOptionByTag(SongPresetModeBox, songPreset);
                 SongShowCoverCheck.IsChecked = properties["showCover"] is null
                     ? songPreset != "lyricOnly" : IsTruthy(properties["showCover"]);
@@ -1994,12 +2005,19 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             double layoutWidth = intrinsicWidth ? Math.Max(1, measuredText.Width) : drawWidth;
             double layoutHeight = drawHeight <= 1 ? Math.Max(1, measuredText.Height) : drawHeight;
             string alignment = Text(properties["align"]).ToLowerInvariant();
-            double layoutLeft = intrinsicWidth && alignment == "left"
-                ? drawLeft + (baseTextSize.Width - measuredText.Width) / 2
-                : drawLeft - (alignment switch { "center" => layoutWidth / 2, "right" => layoutWidth, _ => 0 });
             bool dataText = type is "data" or "lyric";
             bool currentLyric = ReadBool(properties["isLyric"])
                 || Text(properties["dataSource"]).Equals("lyric_current", StringComparison.OrdinalIgnoreCase);
+            string template = Text(properties["text"]);
+            bool dynamicSensorValue = !currentLyric
+                && (type == "data" || type == "text" && template.Contains('{') && template.Contains('}'));
+            if (dynamicSensorValue)
+                alignment = "center";
+            double layoutLeft = dynamicSensorValue && !intrinsicWidth
+                ? drawLeft
+                : intrinsicWidth && alignment == "left"
+                    ? drawLeft + (baseTextSize.Width - measuredText.Width) / 2
+                    : drawLeft - (alignment switch { "center" => layoutWidth / 2, "right" => layoutWidth, _ => 0 });
             double layoutTop = drawTop - (dataText && !currentLyric ? .85 * fontScaleY : 0);
             double glyphLeft = layoutLeft + (alignment switch
             {

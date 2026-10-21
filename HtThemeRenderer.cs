@@ -1289,7 +1289,12 @@ internal sealed class HtThemeRenderer : IDisposable
         using Font baseFont = CreateFont(fontName, baseFontSize, style);
         using Font font = CreateFont(fontName, fontSize, FontStyleFrom(p));
         using var brush = new SolidBrush(color);
-        string alignment = String(p, "align")?.ToLowerInvariant() ?? "left";
+        string template = String(p, "text") ?? string.Empty;
+        bool dynamicSensorValue = !currentLyric
+            && (data || template.Contains('{') && template.Contains('}'));
+        string alignment = dynamicSensorValue
+            ? "center"
+            : String(p, "align")?.ToLowerInvariant() ?? "left";
         using var measureFormat = new StringFormat(StringFormat.GenericTypographic)
         {
             FormatFlags = StringFormatFlags.NoWrap | StringFormatFlags.NoClip
@@ -1299,14 +1304,16 @@ internal sealed class HtThemeRenderer : IDisposable
         bool intrinsicBounds = bounds.Width <= 1;
         float layoutWidth = intrinsicBounds ? Math.Max(1, measured.Width) : bounds.Width;
         float layoutHeight = bounds.Height <= 1 ? Math.Max(1, measured.Height) : bounds.Height;
-        float x = intrinsicBounds && alignment == "left"
-            ? bounds.X + (baseMeasured.Width - measured.Width) / 2f
-            : bounds.X - (alignment switch
-        {
-            "center" => layoutWidth / 2,
-            "right" => layoutWidth,
-            _ => 0
-        });
+        float x = dynamicSensorValue
+            ? intrinsicBounds ? bounds.X - layoutWidth / 2f : bounds.X
+            : intrinsicBounds && alignment == "left"
+                ? bounds.X + (baseMeasured.Width - measured.Width) / 2f
+                : bounds.X - (alignment switch
+                {
+                    "center" => layoutWidth / 2,
+                    "right" => layoutWidth,
+                    _ => 0
+                });
         float y = bounds.Y - (data && !currentLyric ? .85f * scaleY : 0);
         RectangleF textBounds = new(x, y, layoutWidth, layoutHeight);
         GraphicsState textState = graphics.Save();
