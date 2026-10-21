@@ -178,6 +178,8 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
         FontFamilyBox.SelectedItem = installedFamily;
     }
 
+    private string SelectedFontFamily => FontFamilyBox.SelectedItem as string ?? string.Empty;
+
     public byte[]? PackageBytes { get; private set; }
     public string ThemeName => ThemeNameBox.Text.Trim();
     internal event EventHandler? SaveRequested;
@@ -762,7 +764,20 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
                     SetOptionalNumberIfValid(p, "backgroundOpacity", SongBackgroundOpacityBox.Text);
                     SetOptionalNumberIfValid(p, "coverRotateDuration", SongCoverRotateDurationBox.Text);
                     SetOptionalNumberIfValid(p, "gap", SongGapBox.Text);
-                    SetOptionalString(p, "lyricFontFamily", FontFamilyBox.Text);
+                    string selectedFont = SelectedFontFamily;
+                    if (selectedFont.Length > 0)
+                    {
+                        SetOptionalString(p, "lyricFontFamily", selectedFont);
+                        if (ReferenceEquals(sender, FontFamilyBox))
+                        {
+                            // This inspector exposes one family selector for the whole
+                            // media-and-lyrics layer, so apply it to every text role.
+                            p["fontFamily"] = selectedFont;
+                            p["titleFontFamily"] = selectedFont;
+                            p["artistFontFamily"] = selectedFont;
+                            p["noMediaHintFontFamily"] = selectedFont;
+                        }
+                    }
                     if (ColorBox.Text.Trim().Length > 0) p["lyricColor"] = ColorBox.Text.Trim();
                     if (SecondColorBox.Text.Trim().Length > 0) p["lyricActiveColor"] = SecondColorBox.Text.Trim();
                     if (OutlineColorBox.Text.Trim().Length > 0) p["artistColor"] = OutlineColorBox.Text.Trim();
@@ -887,7 +902,7 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
                     UpdateTextStroke(p);
                     UpdateTextShadow(p);
                 }
-                if (FontFamilyBox.Text.Trim().Length > 0) p["fontFamily"] = FontFamilyBox.Text.Trim();
+                if (SelectedFontFamily.Length > 0) p["fontFamily"] = SelectedFontFamily;
                 if (ColorBox.Text.Trim().Length > 0)
                 {
                     string colorProperty = type switch
