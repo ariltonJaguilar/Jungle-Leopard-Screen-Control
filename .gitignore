@@ -1,0 +1,35 @@
+﻿# Compilações e artefatos gerados
+[Bb]in/
+[Oo]bj/
+/build/
+.vs/
+.native-build/
+MediaSessionBridge.dll
+*.user
+*.suo
+*.pdb
+*.cache
+
+# Configuração, dados e logs locais
+/settings.json
+/debug.log
+/staging-screen.png
+Firmware/
+.lcd-theme-audit/
+/FEATURE_PARITY.md
+
+# Cache local do SDK/NuGet e ferramentas do Codex
+.dotnet-cli/
+.dotnet-cli-home/
+.dotnet-home/
+.nuget-cache/
+.nuget/
+.agents/
+.codex/
+.aws/
+
+# Arquivos temporários do sistema/editor
+Thumbs.db
+.DS_Store
+*.tmp
+*.bak

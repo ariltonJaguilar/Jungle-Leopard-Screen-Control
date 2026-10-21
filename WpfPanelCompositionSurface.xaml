@@ -1,0 +1,23 @@
+<UserControl x:Class="JungleLeopardPoc.WpfPanelCompositionSurface"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             MinHeight="220" Background="{DynamicResource CanvasInsetBrush}">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/JungleLeopardScreenControl;component/Win11Theme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <Grid ClipToBounds="True" Background="{StaticResource CanvasInsetBrush}">
+        <Canvas x:Name="PanelCanvas" Background="Transparent"
+                SizeChanged="PanelCanvasSizeChanged"
+                MouseLeftButtonDown="PanelCanvasMouseDown"
+                MouseMove="PanelCanvasMouseMove"
+                MouseLeftButtonUp="PanelCanvasMouseUp" />
+        <TextBlock x:Name="HintText" Text="Selecione ‘Compor livremente’ para mover os painéis"
+                   Foreground="{StaticResource MutedBrush}" FontSize="11"
+                   HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12,0,0,10"
+                   IsHitTestVisible="False" />
+    </Grid>
+</UserControl>

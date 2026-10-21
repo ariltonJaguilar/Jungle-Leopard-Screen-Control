@@ -1,0 +1,109 @@
+<Window x:Class="JungleLeopardPoc.LcdStudioWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Jungle Leopard Screen Control"
+        Icon="pack://application:,,,/JungleLeopardScreenControl;component/Assets/icon.png"
+        Width="1280" Height="820" MinWidth="960" MinHeight="640"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource CanvasBrush}" Foreground="{DynamicResource TextBrush}"
+        FontFamily="Segoe UI" FontSize="14" UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/JungleLeopardScreenControl;component/Win11Theme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <Style x:Key="SidebarNavigationButton" TargetType="Button" BasedOn="{StaticResource Win11Button}">
+                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="Padding" Value="12,9" />
+                <Setter Property="Margin" Value="0,2" />
+                <Setter Property="MinHeight" Value="42" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="FontWeight" Value="Normal" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="NavBorder" Background="Transparent" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="3" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Border x:Name="NavMarker" Background="{StaticResource AccentBrush}" CornerRadius="2" Opacity="0" />
+                                    <ContentPresenter Grid.Column="1" Margin="10,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="Tag" Value="selected">
+                                    <Setter TargetName="NavBorder" Property="Background" Value="{StaticResource NavSelectedBrush}" />
+                                    <Setter TargetName="NavMarker" Property="Opacity" Value="1" />
+                                </Trigger>
+                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="NavBorder" Property="Background" Value="{StaticResource PanelHoverBrush}" /></Trigger>
+                                <Trigger Property="IsPressed" Value="True"><Setter TargetName="NavBorder" Property="Background" Value="{StaticResource SelectionBrush}" /></Trigger>
+                                <Trigger Property="IsEnabled" Value="False"><Setter TargetName="NavBorder" Property="Opacity" Value="0.45" /></Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="256" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="{StaticResource SidebarBrush}" Padding="14,18,12,14">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="82" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid Margin="6,3,0,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="40" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Border Width="34" Height="34" CornerRadius="10" Background="{StaticResource NavSelectedBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" VerticalAlignment="Top">
+                        <Image Source="pack://application:,,,/JungleLeopardScreenControl;component/Assets/icon.png" Width="26" Height="26" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="8,1,0,0">
+                        <TextBlock Text="Jungle Leopard" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock Text="Screen Control" FontSize="11" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,0" />
+                    </StackPanel>
+                </Grid>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="0,6,0,0">
+                        <Button x:Name="DevicesNavigation" Style="{StaticResource SidebarNavigationButton}" Click="DevicesClicked">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE772;" FontFamily="Segoe MDL2 Assets" FontSize="16" Width="24" /><TextBlock Text="Painel e conexão" /></StackPanel>
+                        </Button>
+                        <Button x:Name="MultiScreenNavigation" Style="{StaticResource SidebarNavigationButton}" Click="MultiScreenClicked">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8A9;" FontFamily="Segoe MDL2 Assets" FontSize="16" Width="24" /><TextBlock Text="Múltiplas telas" /></StackPanel>
+                        </Button>
+                        <Border Height="1" Background="{StaticResource PanelBorderBrush}" Margin="12,12,12,10" />
+                        <Button x:Name="ThemesNavigation" Style="{StaticResource SidebarNavigationButton}" Click="ThemesClicked">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE790;" FontFamily="Segoe MDL2 Assets" FontSize="16" Width="24" /><TextBlock Text="Cover Studio" /></StackPanel>
+                        </Button>
+                        <Button x:Name="SensorsNavigation" Style="{StaticResource SidebarNavigationButton}" Click="SensorsClicked">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE9D9;" FontFamily="Segoe MDL2 Assets" FontSize="16" Width="24" /><TextBlock Text="Dados dos temas" /></StackPanel>
+                        </Button>
+                        <Border Height="1" Background="{StaticResource PanelBorderBrush}" Margin="12,12,12,10" />
+                        <Button x:Name="IntegrationsNavigation" Style="{StaticResource SidebarNavigationButton}" Click="IntegrationsClicked">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE88E;" FontFamily="Segoe MDL2 Assets" FontSize="16" Width="24" /><TextBlock Text="Integra&#xE7;&#xF5;es" /></StackPanel>
+                        </Button>
+                        <Button x:Name="SettingsNavigation" Style="{StaticResource SidebarNavigationButton}" Click="SettingsClicked">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" FontSize="16" Width="24" /><TextBlock Text="Configurações do LCD" /></StackPanel>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
+                <Border Grid.Row="2" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="12">
+                    <StackPanel>
+                        <TextBlock Text="DISPOSITIVO" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" />
+                        <TextBlock x:Name="SidebarDeviceStatus" Text="Procurando tela USB…" TextWrapping="Wrap" Margin="0,7,0,0" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Column="1" Margin="22,18,22,18">
+            <ContentControl x:Name="PageHost" />
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,76 @@
+<UserControl x:Class="JungleLeopardPoc.LcdControlPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource CanvasBrush}" Foreground="{DynamicResource TextBrush}"
+             FontFamily="Segoe UI" FontSize="14" UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/JungleLeopardScreenControl;component/Win11Theme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="2,0,6,10">
+            <StackPanel Margin="0,0,0,18">
+                <TextBlock Text="Controle da tela LCD" FontSize="29" FontWeight="SemiBold" />
+            </StackPanel>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="14,12" Margin="0,0,0,14">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <TextBlock Text="Tela" Foreground="{StaticResource MutedBrush}" Margin="0,0,16,0" VerticalAlignment="Center" />
+                    <TextBlock x:Name="PanelDetection" Grid.Column="1" Text="Procurando tela USB…" Foreground="{StaticResource TextBrush}"
+                               FontSize="15" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                </Grid>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="14" Padding="14" Height="450" Margin="0,0,0,14">
+                <Border Background="{StaticResource PreviewStageBrush}" BorderBrush="{StaticResource PreviewBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="20" ClipToBounds="True">
+                    <Grid>
+                        <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <Viewbox x:Name="PreviewViewbox" Stretch="Uniform" StretchDirection="DownOnly" Margin="12,8,12,4">
+                            <Border x:Name="PreviewPanelSurface" Width="960" Height="480" Background="{StaticResource ScreenSurfaceBrush}"
+                                    BorderBrush="{StaticResource ScreenBezelBrush}" BorderThickness="3" CornerRadius="8" ClipToBounds="True">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="#08080A" BlurRadius="24" ShadowDepth="7" Opacity="0.62" />
+                                </Border.Effect>
+                                <Grid>
+                                    <Image x:Name="PanelPreview" Stretch="Fill" Visibility="Collapsed" />
+                                    <Grid x:Name="PreviewPlaceholder" Background="{StaticResource ScreenSurfaceBrush}" Margin="12">
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                        <TextBlock Text="↑" FontSize="30" FontWeight="Light" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" />
+                                        <TextBlock Grid.Row="1" Text="LCD" FontSize="64" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Grid>
+                            </Border>
+                        </Viewbox>
+                        <TextBlock x:Name="PreviewSizeLabel" Grid.Row="1" Text="940 × 870 px" FontSize="20" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Margin="0,3,0,0" />
+                    </Grid>
+                </Border>
+            </Border>
+
+            <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,0,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1.1*" /><ColumnDefinition Width="1.35*" /><ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Margin="0,0,14,0">
+                        <TextBlock Text="Orientação da tela" Foreground="{StaticResource MutedBrush}" Margin="0,0,0,7" />
+                        <ComboBox x:Name="RotationSelector" SelectionChanged="ScreenOptionChanged">
+                            <ComboBoxItem Content="0°" /><ComboBoxItem Content="90° horário" /><ComboBoxItem Content="180°" /><ComboBoxItem Content="270° horário" />
+                        </ComboBox>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="0,0,18,0">
+                        <DockPanel Margin="0,0,0,5"><TextBlock Text="Brilho" Foreground="{StaticResource MutedBrush}" /><TextBlock x:Name="BrightnessText" DockPanel.Dock="Right" Text="100%" Foreground="{StaticResource MutedBrush}" /></DockPanel>
+                        <Slider x:Name="BrightnessSelector" Minimum="0" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="False" ValueChanged="ScreenOptionChanged" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <CheckBox x:Name="AutomaticSteamCover" Grid.Column="2" Content="Capa Steam automática" VerticalAlignment="Center" Checked="ScreenOptionChanged" Unchecked="ScreenOptionChanged" />
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
