@@ -202,6 +202,7 @@ internal static class ForegroundFpsSensor
         using var reader = new StreamReader(pipe, new UTF8Encoding(false), false, 1024, leaveOpen: true);
         using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 1024, leaveOpen: true) { AutoFlush = true, NewLine = "\n" };
         using var parent = Process.GetProcessById(parentProcessId);
+        string sessionName = $"JungleLeopardFps_{parentProcessId}_{Guid.NewGuid():N}";
         var pendingFrames = new ConcurrentQueue<FrameSample>();
         var swapChains = new Dictionary<string, Queue<FrameSample>>(StringComparer.OrdinalIgnoreCase);
         Process? capture = null;
@@ -263,7 +264,8 @@ internal static class ForegroundFpsSensor
                             try
                             {
                                 captureCancellation = new CancellationTokenSource();
-                                (capture, captureReadTask) = StartCapture(foregroundProcessId, pendingFrames, captureCancellation.Token);
+                                (capture, captureReadTask) = StartCapture(
+                                    foregroundProcessId, sessionName, pendingFrames, captureCancellation.Token);
                             }
                             catch (Exception ex) when (ex is IOException or InvalidOperationException
                                 or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
@@ -302,6 +304,7 @@ internal static class ForegroundFpsSensor
 
     private static (Process Process, Task ReaderTask) StartCapture(
         uint processId,
+        string sessionName,
         ConcurrentQueue<FrameSample> pendingFrames,
         CancellationToken cancellationToken)
     {
@@ -320,6 +323,9 @@ internal static class ForegroundFpsSensor
         };
         startInfo.ArgumentList.Add("--process_id");
         startInfo.ArgumentList.Add(processId.ToString(CultureInfo.InvariantCulture));
+        startInfo.ArgumentList.Add("--session_name");
+        startInfo.ArgumentList.Add(sessionName);
+        startInfo.ArgumentList.Add("--stop_existing_session");
         startInfo.ArgumentList.Add("--v1_metrics");
         startInfo.ArgumentList.Add("--output_stdout");
         startInfo.ArgumentList.Add("--no_console_stats");

@@ -2936,7 +2936,6 @@ internal sealed class LcdStudioBackend
         _sourceImage?.Dispose();
         _sourceImage = null;
         _selectedImageName = $"{gameName} (Steam)";
-        _lastImagePath = null;
         DisplayPreparedImage(prepared);
         _themePreviewTimer.Start();
     }
@@ -2990,27 +2989,12 @@ internal sealed class LcdStudioBackend
             return;
         }
 
-        Image placeholderSource = _previewPlaceholder.CreateSourceBitmap(GetDisplaySize(CurrentRotation));
-        PreparedImage prepared;
-        try
-        {
-            prepared = PrepareImage(placeholderSource, CurrentRotation, ImageFitMode.Stretch, CurrentRenderBrightness);
-        }
-        catch
-        {
-            placeholderSource.Dispose();
-            throw;
-        }
-
-        _sourceImage?.Dispose();
-        ClearActiveTheme();
-        _sourceImage = placeholderSource;
-        _selectedImageName = "Aguardando jogo Steam em primeiro plano";
         _loadedSteamAppId = null;
         _loadedSteamCoverPortrait = null;
         _loadedSteamCoverBytes = null;
-        _ = prepared;
-        RefreshPreparedImage();
+        RestoreSavedVisual();
+        if (IsSteamCoverVisual || _jpegBytes is null)
+            ShowWaitingVisual();
         _gameStatus.Text = status;
     }
 
@@ -3281,12 +3265,27 @@ internal sealed class LcdStudioBackend
         if (_jpegBytes is not null)
             return;
 
+        ShowWaitingVisual();
+    }
+
+    private void ShowWaitingVisual()
+    {
         Bitmap placeholder = _previewPlaceholder.CreateSourceBitmap(GetDisplaySize(CurrentRotation));
+        PreparedImage prepared;
+        try
+        {
+            prepared = PrepareImage(placeholder, CurrentRotation, ImageFitMode.Stretch, CurrentRenderBrightness);
+        }
+        catch
+        {
+            placeholder.Dispose();
+            throw;
+        }
+
         _sourceImage?.Dispose();
         ClearActiveTheme();
         _sourceImage = placeholder;
         _selectedImageName = "Aguardando imagem";
-        PreparedImage prepared = PrepareImage(placeholder, CurrentRotation, ImageFitMode.Stretch, CurrentRenderBrightness);
         DisplayPreparedImage(prepared);
     }
 
