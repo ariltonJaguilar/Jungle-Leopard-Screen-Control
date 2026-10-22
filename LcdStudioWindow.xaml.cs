@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -13,6 +14,7 @@ using CheckBox = System.Windows.Controls.CheckBox;
 using ComboBox = System.Windows.Controls.ComboBox;
 using ListBox = System.Windows.Controls.ListBox;
 using Panel = System.Windows.Controls.Panel;
+using PasswordBox = System.Windows.Controls.PasswordBox;
 using ProgressBar = System.Windows.Controls.ProgressBar;
 using TextBox = System.Windows.Controls.TextBox;
 
@@ -30,6 +32,7 @@ public partial class LcdStudioWindow : Window
     private string _panelCanvasSignature = string.Empty;
     private readonly Dictionary<string, TextBlock> _sensorValues = new(StringComparer.OrdinalIgnoreCase);
     private TextBlock? _cpuSensorSupportStatus;
+    private TextBlock? _fpsCaptureStatus;
     private readonly Dictionary<string, TextBlock> _deviceValues = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ComboBox> _sensorSourceSelectors = new(StringComparer.OrdinalIgnoreCase);
     private readonly ListBox _panelList = new();
@@ -65,6 +68,9 @@ public partial class LcdStudioWindow : Window
     private CheckBox? _launchAtLogin;
     private CheckBox? _startHidden;
     private CheckBox? _automaticSteamCover;
+    private TextBlock? _steamStatus;
+    private PasswordBox? _steamGridDbApiKey;
+    private TextBlock? _steamGridDbKeyStatus;
     private bool _syncingSettings;
     private bool _syncingIntegrations;
     private bool _syncingCrop;
@@ -203,6 +209,10 @@ public partial class LcdStudioWindow : Window
     private void RefreshSharedStatus()
     {
         _sidebarStatus.Text = _controller.PanelStatusDescription;
+        if (_steamStatus is not null
+            && _pages["integrations"] is FrameworkElement integrationsPage
+            && integrationsPage.IsLoaded)
+            _steamStatus.Text = _controller.GameStatusMessage;
         if (_pages["devices"] is FrameworkElement devicePage && devicePage.IsLoaded)
         {
             _deviceValues["connection"].Text = _controller.PanelDetectionText;
@@ -250,6 +260,8 @@ public partial class LcdStudioWindow : Window
             _sensorValues["gpu"].Text = _controller.GpuSensorText;
             _sensorValues["cpu-temp"].Text = _controller.CpuTemperatureText;
             _sensorValues["gpu-temp"].Text = _controller.GpuTemperatureText;
+            if (_fpsCaptureStatus is not null)
+                _fpsCaptureStatus.Text = _controller.FpsCaptureStatus;
             if (_cpuSensorSupportStatus is not null)
                 _cpuSensorSupportStatus.Text = CpuSensorSupport.GetStatusText();
             foreach (var option in _controller.SensorSourceSelections)
@@ -645,6 +657,17 @@ public partial class LcdStudioWindow : Window
         AddSensorMetric(metrics, "Temperatura da CPU", "cpu-temp", _controller.CpuTemperatureText, "Sensor disponível");
         AddSensorMetric(metrics, "Temperatura da GPU", "gpu-temp", _controller.GpuTemperatureText, "Sensor disponível");
         AddCard(content, metrics);
+        var fpsStatus = new StackPanel();
+        fpsStatus.Children.Add(SectionLabel("FPS DO APP EM PRIMEIRO PLANO"));
+        _fpsCaptureStatus = new TextBlock
+        {
+            Text = _controller.FpsCaptureStatus,
+            Foreground = Brush("MutedBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(4, 4, 4, 6)
+        };
+        fpsStatus.Children.Add(_fpsCaptureStatus);
+        AddCard(content, fpsStatus);
         var cpuSensorSupport = new StackPanel();
         cpuSensorSupport.Children.Add(SectionLabel("ACESSO A SENSORES DE HARDWARE"));
         _cpuSensorSupportStatus = new TextBlock
@@ -772,6 +795,15 @@ public partial class LcdStudioWindow : Window
         _automaticSteamCover.Checked += AutomaticSteamCoverChanged;
         _automaticSteamCover.Unchecked += AutomaticSteamCoverChanged;
         settings.Children.Add(_automaticSteamCover);
+        settings.Children.Add(SectionLabel("Status"));
+        _steamStatus = new TextBlock
+        {
+            Text = _controller.GameStatusMessage,
+            Foreground = Brush("MutedBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(4, 0, 4, 8)
+        };
+        settings.Children.Add(_steamStatus);
         settings.Children.Add(new TextBlock
         {
             Text = "Detecta o jogo Steam em primeiro plano e atualiza automaticamente a capa exibida no painel.",
@@ -779,6 +811,39 @@ public partial class LcdStudioWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(4, 4, 4, 2)
         });
+        settings.Children.Add(SectionLabel("Fallback SteamGridDB"));
+        settings.Children.Add(new TextBlock
+        {
+            Text = "Se a Steam não fornecer a imagem, busca uma capa vertical ou horizontal no SteamGridDB. Crie uma chave API no perfil do SteamGridDB (Preferences > API).",
+            Foreground = Brush("MutedBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(4, 0, 4, 8)
+        });
+        _steamGridDbApiKey = new PasswordBox
+        {
+            MinHeight = 34,
+            Padding = new Thickness(9, 5, 9, 5),
+            ToolTip = "A chave é protegida pelo Windows e vinculada a esta conta de usuário.",
+            Margin = new Thickness(4, 0, 4, 8)
+        };
+        settings.Children.Add(_steamGridDbApiKey);
+        var steamGridDbKeyActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(4, 0, 4, 4)
+        };
+        steamGridDbKeyActions.Children.Add(ActionButton("Salvar chave", SaveSteamGridDbKeyClicked, primary: true));
+        steamGridDbKeyActions.Children.Add(ActionButton("Remover chave", RemoveSteamGridDbKeyClicked));
+        steamGridDbKeyActions.Children.Add(ActionButton("Obter chave", (_, _) => Process.Start(new ProcessStartInfo("https://www.steamgriddb.com/profile/preferences/api") { UseShellExecute = true })));
+        steamGridDbKeyActions.Children.Add(ActionButton("Documentação", (_, _) => Process.Start(new ProcessStartInfo("https://www.steamgriddb.com/api/v2") { UseShellExecute = true })));
+        settings.Children.Add(steamGridDbKeyActions);
+        _steamGridDbKeyStatus = new TextBlock
+        {
+            Foreground = Brush("MutedBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(4, 2, 4, 8)
+        };
+        settings.Children.Add(_steamGridDbKeyStatus);
         card.Children.Add(settings);
         var editButton = ActionButton("Editar layout", EditSteamLayoutClicked, primary: true);
         editButton.VerticalAlignment = VerticalAlignment.Center;
@@ -849,12 +914,57 @@ public partial class LcdStudioWindow : Window
             _automaticSteamCover.IsChecked == true);
     }
 
+    private void SaveSteamGridDbKeyClicked(object sender, RoutedEventArgs e)
+    {
+        if (_steamGridDbApiKey is null || string.IsNullOrWhiteSpace(_steamGridDbApiKey.Password))
+        {
+            AppMessageBox.Show(this, "Cole a chave API do SteamGridDB no campo antes de salvar.",
+                "SteamGridDB", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            SteamCoverProvider.SaveSteamGridDbApiKey(_steamGridDbApiKey.Password);
+            _steamGridDbApiKey.Clear();
+            _steamGridDbKeyStatus!.Text = "Chave salva e protegida pelo Windows para esta conta.";
+            _controller.SteamGridDbConfigurationChangedFromStudio();
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            AppMessageBox.Show(this, "Não foi possível salvar a chave SteamGridDB: " + ex.Message,
+                "SteamGridDB", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void RemoveSteamGridDbKeyClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SteamCoverProvider.RemoveSteamGridDbApiKey();
+            _steamGridDbApiKey?.Clear();
+            _steamGridDbKeyStatus!.Text = "Chave SteamGridDB removida.";
+            _controller.SteamGridDbConfigurationChangedFromStudio();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppMessageBox.Show(this, "Não foi possível remover a chave SteamGridDB: " + ex.Message,
+                "SteamGridDB", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private void RefreshIntegrationsPage()
     {
         if (_automaticSteamCover is null) return;
         _syncingIntegrations = true;
         _automaticSteamCover.IsChecked = _controller.AutomaticSteamCover;
         _syncingIntegrations = false;
+        if (_steamStatus is not null)
+            _steamStatus.Text = _controller.GameStatusMessage;
+        if (_steamGridDbKeyStatus is not null)
+            _steamGridDbKeyStatus.Text = SteamCoverProvider.HasSteamGridDbApiKey
+                ? "Chave SteamGridDB configurada e protegida neste usuário do Windows."
+                : "Nenhuma chave SteamGridDB configurada.";
     }
 
     private void SaveSettingsFromView()

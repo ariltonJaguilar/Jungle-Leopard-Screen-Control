@@ -10,6 +10,7 @@
     <AssemblyName>JungleLeopardScreenControl</AssemblyName>
     <AssemblyTitle>Jungle Leopard Screen Control</AssemblyTitle>
     <Product>Jungle Leopard Screen Control</Product>
+    <Version>1.1.0</Version>
     <RootNamespace>JungleLeopardPoc</RootNamespace>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
   </PropertyGroup>

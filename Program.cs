@@ -148,6 +148,9 @@ internal sealed class LcdStudioBackend
     private readonly BackendTextState _imageInfo = new("Nenhuma imagem selecionada");
     private readonly BackendTextState _status = new("Pronto. Selecione uma imagem para começar.");
     private readonly BackendTextState _gameStatus = new("Capa Steam automática desativada.");
+    private string? _lastSteamDetectionDiagnostic;
+    private string? _lastSteamDiagnosticLine;
+    private bool _steamFirstTickLogged;
     private readonly BackendActionState _showButton = new() { Enabled = false };
     private readonly BackendActionState _stopButton = new() { Enabled = false };
     private readonly BackendActionState _closeOriginalButton = new();
@@ -346,6 +349,7 @@ internal sealed class LcdStudioBackend
     internal string GpuSensorText => _monitorGpuValue.Text;
     internal string CpuTemperatureText => _monitorCpuTemperatureValue.Text;
     internal string GpuTemperatureText => _monitorGpuTemperatureValue.Text;
+    internal string FpsCaptureStatus => ForegroundFpsSensor.Status;
     internal string MultiScreenStatusText => _multiScreenStatus.Text;
     internal string MultiScreenCompositionStatusText => _multiScreenCompositionStatus.Text;
     internal string[] DetectedPanelPorts => Volatile.Read(ref _detectedPorts).ToArray();
@@ -421,6 +425,18 @@ internal sealed class LcdStudioBackend
             SaveSettings(safeRotation, automaticSteamCover);
             RefreshPreparedImage();
         }
+    }
+
+    internal void SteamGridDbConfigurationChangedFromStudio()
+    {
+        _loadedSteamAppId = null;
+        _loadedSteamCoverPortrait = null;
+        _loadedSteamCoverBytes = null;
+        _steamCoverAttemptAppId = null;
+        _steamCoverAttemptPortrait = null;
+        _nextSteamCoverRetryUtc = DateTime.MinValue;
+        if (_autoSteamCover.Checked)
+            RequestSteamDetection();
     }
 
     internal ThemePackage? LoadSteamLayoutPackage(bool portrait)
@@ -556,6 +572,7 @@ internal sealed class LcdStudioBackend
 
     internal void StartBackend()
     {
+        AppendSteamDiagnostic($"BACKEND: start requested; automaticSteam={_autoSteamCover.Checked}; hidden={_startHidden.Checked}.");
         UpdateTrayVisibility();
         if (_startHidden.Checked && _trayIconVisible) _studioWindow?.Hide();
         SubscribeSystemPlaybackEvents();
@@ -2837,13 +2854,31 @@ internal sealed class LcdStudioBackend
 
     private async void SteamDetectionTimerTick(object? sender, EventArgs e)
     {
-        if (!_autoSteamCover.Checked || _steamDetectionBusy || _deviceMaintenanceInProgress || _desktopCaptureActive || IsSystemPlaybackBlocked())
+        if (!_steamFirstTickLogged)
+        {
+            _steamFirstTickLogged = true;
+            AppendSteamDiagnostic($"TIMER: first tick; automaticSteam={_autoSteamCover.Checked}.");
+        }
+        if (!_autoSteamCover.Checked)
+        {
+            AppendSteamDiagnostic("SKIP: automatic Steam cover is disabled.");
             return;
+        }
+        if (_steamDetectionBusy)
+            return;
+        if (_deviceMaintenanceInProgress || _desktopCaptureActive || IsSystemPlaybackBlocked())
+        {
+            AppendSteamDiagnostic("SKIP: detection paused for device maintenance, desktop capture, or blocked playback.");
+            return;
+        }
 
         _steamDetectionBusy = true;
         try
         {
-            SteamGameInfo? game = await Task.Run(SteamGameDetector.GetForegroundGame, _appShutdown.Token);
+            string detectorDiagnostic = "";
+            SteamGameInfo? game = await Task.Run(
+                () => SteamGameDetector.GetForegroundGame(out detectorDiagnostic), _appShutdown.Token);
+            LogSteamDetectionDiagnostic(detectorDiagnostic);
             if (game is null)
             {
                 ObserveForegroundGame(null);
@@ -2863,12 +2898,14 @@ internal sealed class LcdStudioBackend
                 _steamCoverAttemptAppId = game.AppId;
                 _steamCoverAttemptPortrait = preferPortrait;
                 _nextSteamCoverRetryUtc = DateTime.UtcNow.AddSeconds(30);
+                AppendSteamDiagnostic($"COVER: requesting {(preferPortrait ? "portrait" : "landscape")} art for {game.Name} (AppID {game.AppId}).");
                 _gameStatus.Text = $"Buscando a capa {(preferPortrait ? "vertical" : "horizontal")} de {game.Name}…";
 
-                byte[] coverBytes = await SteamCoverProvider.GetCoverAsync(
+                SteamCoverProvider.CoverResult cover = await SteamCoverProvider.GetCoverAsync(
                     game,
                     preferPortrait,
                     _appShutdown.Token);
+                byte[] coverBytes = cover.Bytes;
 
                 if (_isShuttingDown || !_autoSteamCover.Checked)
                     return;
@@ -2918,11 +2955,12 @@ internal sealed class LcdStudioBackend
                     _selectedImageName = $"{game.Name} (Steam)";
                     RefreshPreparedImage();
                 }
+                AppendSteamDiagnostic($"COVER: loaded art from {cover.Source} for {game.Name} (AppID {game.AppId}); panel image updated.");
                 _loadedSteamAppId = game.AppId;
                 _loadedSteamCoverPortrait = preferPortrait;
                 _loadedSteamCoverBytes = (byte[])coverBytes.Clone();
                 _nextSteamCoverRetryUtc = DateTime.MinValue;
-                _gameStatus.Text = $"Capa {(preferPortrait ? "vertical" : "horizontal")} carregada: {game.Name}. A transmissão acompanha o jogo em foco.";
+                _gameStatus.Text = $"Capa carregada de {cover.Source}: {game.Name}. A transmissão acompanha o jogo em foco.";
                 _nextAutoConnectAttemptUtc = DateTime.MinValue;
             }
 
@@ -2932,6 +2970,7 @@ internal sealed class LcdStudioBackend
         catch (OperationCanceledException) when (_appShutdown.IsCancellationRequested) { }
         catch (Exception ex)
         {
+            AppendSteamDiagnostic($"ERROR: {ex.GetType().Name}: {ex.Message}");
             _gameStatus.Text = $"Não consegui obter a capa Steam: {ex.Message}";
         }
         finally
@@ -2942,6 +2981,37 @@ internal sealed class LcdStudioBackend
                 _steamDetectionRefreshRequested = false;
                 SteamDetectionTimerTick(this, EventArgs.Empty);
             }
+        }
+    }
+
+    private void LogSteamDetectionDiagnostic(string diagnostic)
+    {
+        if (string.Equals(_lastSteamDetectionDiagnostic, diagnostic, StringComparison.Ordinal))
+            return;
+        _lastSteamDetectionDiagnostic = diagnostic;
+        AppendSteamDiagnostic("DETECT: " + diagnostic);
+    }
+
+    private void AppendSteamDiagnostic(string message)
+    {
+        if (string.Equals(_lastSteamDiagnosticLine, message, StringComparison.Ordinal))
+            return;
+        _lastSteamDiagnosticLine = message;
+
+        try
+        {
+            string path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "JungleLeopardStudio",
+                "steam-detection.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            if (File.Exists(path) && new FileInfo(path).Length > 512 * 1024)
+                File.WriteAllText(path, "");
+            File.AppendAllText(path, $"{DateTimeOffset.Now:O} {message}{Environment.NewLine}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException or ArgumentException)
+        {
+            // Diagnostics must never interrupt game detection or panel streaming.
         }
     }
 
@@ -3040,13 +3110,20 @@ internal sealed class LcdStudioBackend
     private void EnsureAutomaticSteamTransmission(SteamGameInfo game)
     {
         if (_deviceMaintenanceInProgress || _autoSteamSessionSuppressed || _desktopCaptureActive)
+        {
+            AppendSteamDiagnostic($"TRANSMISSION: blocked by maintenance/suppression/desktop capture for {game.Name}.");
             return;
+        }
 
         if (_streamTask is { IsCompleted: false })
+        {
+            AppendSteamDiagnostic($"TRANSMISSION: stream already active while {game.Name} is foreground.");
             return;
+        }
 
         if (_detectedPort is null)
         {
+            AppendSteamDiagnostic($"PANEL: no compatible panel port detected for {game.Name}.");
             _gameStatus.Text = $"Capa de {game.Name} pronta; tela Jungle Leopard não detectada.";
             return;
         }
@@ -3055,6 +3132,7 @@ internal sealed class LcdStudioBackend
             return;
 
         _nextAutoConnectAttemptUtc = DateTime.UtcNow.AddSeconds(5);
+        AppendSteamDiagnostic($"TRANSMISSION: starting automatically on {_detectedPort} for {game.Name} (AppID {game.AppId}).");
         StartStreaming(automatic: true);
     }
 

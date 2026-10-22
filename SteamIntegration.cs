@@ -3,8 +3,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Security;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -37,6 +39,7 @@ internal static class SteamGameDetector
     private readonly record struct ScoredShortcut(InstalledGame Game, int ArgumentCount);
 
     private const uint SnapshotProcesses = 0x00000002;
+    private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint ProcessQueryInformation = 0x0400;
     private const uint ProcessVmRead = 0x0010;
     private const int ProcessBasicInformationClass = 0;
@@ -46,28 +49,45 @@ internal static class SteamGameDetector
     private static IReadOnlyList<InstalledGame> _installedGames = Array.Empty<InstalledGame>();
     private static DateTime _cacheExpiresAtUtc;
 
-    public static SteamGameInfo? GetForegroundGame()
+    public static SteamGameInfo? GetForegroundGame() => GetForegroundGame(out _);
+
+    public static SteamGameInfo? GetForegroundGame(out string diagnostic)
     {
         IntPtr window = GetForegroundWindow();
         if (window == IntPtr.Zero)
+        {
+            diagnostic = "No foreground window is available.";
             return null;
+        }
 
         _ = GetWindowThreadProcessId(window, out uint processId);
         if (processId == 0 || processId == Environment.ProcessId)
-            return null;
-
-        IReadOnlyList<ProcessPathInfo> foregroundProcesses = GetProcessTree(processId);
-        if (foregroundProcesses.Count == 0)
-            return null;
-
-        IReadOnlyList<InstalledGame> games = GetInstalledGames();
-        foreach (InstalledGame game in games)
         {
-            if (!game.IsNonSteamShortcut && IsSameOrChildPath(foregroundProcesses[0].ExecutablePath, game.InstallPath))
-                return new SteamGameInfo(game.AppId, game.Name, game.SteamRoot, game.InstallPath);
+            diagnostic = $"Foreground window {window} has no process or belongs to this app (pid {processId}).";
+            return null;
         }
 
         string foregroundTitle = GetWindowTitle(window);
+        IReadOnlyList<ProcessPathInfo> foregroundProcesses = GetProcessTree(processId);
+        if (foregroundProcesses.Count == 0)
+        {
+            diagnostic = $"Could not read foreground process path (pid {processId}, title '{foregroundTitle}').";
+            return null;
+        }
+
+        IReadOnlyList<InstalledGame> games = GetInstalledGames();
+        foreach (ProcessPathInfo process in foregroundProcesses)
+        {
+            foreach (InstalledGame game in games)
+            {
+                if (!game.IsNonSteamShortcut && IsSameOrChildPath(process.ExecutablePath, game.InstallPath))
+                {
+                    diagnostic = $"Matched Steam game appid={game.AppId} name='{game.Name}', foregroundPid={processId}, matchedPid={process.ProcessId}, exe='{process.ExecutablePath}', install='{game.InstallPath}', title='{foregroundTitle}'.";
+                    return new SteamGameInfo(game.AppId, game.Name, game.SteamRoot, game.InstallPath);
+                }
+            }
+        }
+
         foreach (ProcessPathInfo process in foregroundProcesses)
         {
             InstalledGame[] matchingShortcuts = games
@@ -76,23 +96,34 @@ internal static class SteamGameDetector
                 .DistinctBy(game => (game.AppId, game.ShortcutExecutable, game.ShortcutArguments))
                 .ToArray();
             if (matchingShortcuts.Length == 1)
+            {
+                diagnostic = $"Matched Steam shortcut appid={matchingShortcuts[0].AppId} name='{matchingShortcuts[0].Name}', foregroundPid={processId}, matchedPid={process.ProcessId}, exe='{process.ExecutablePath}', title='{foregroundTitle}'.";
                 return ToShortcutInfo(matchingShortcuts[0]);
+            }
             if (matchingShortcuts.Length == 0)
                 continue;
 
             string? commandLine = GetProcessCommandLine(process.ProcessId);
             InstalledGame? commandLineMatch = FindShortcutByArguments(matchingShortcuts, commandLine);
             if (commandLineMatch is not null)
+            {
+                diagnostic = $"Matched Steam shortcut by launch arguments appid={commandLineMatch.AppId} name='{commandLineMatch.Name}', foregroundPid={processId}, matchedPid={process.ProcessId}, exe='{process.ExecutablePath}', title='{foregroundTitle}'.";
                 return ToShortcutInfo(commandLineMatch);
+            }
 
             if (process.ProcessId == processId)
             {
                 InstalledGame? titleMatch = FindShortcutByWindowTitle(matchingShortcuts, foregroundTitle);
                 if (titleMatch is not null)
+                {
+                    diagnostic = $"Matched Steam shortcut by window title appid={titleMatch.AppId} name='{titleMatch.Name}', foregroundPid={processId}, exe='{process.ExecutablePath}', title='{foregroundTitle}'.";
                     return ToShortcutInfo(titleMatch);
+                }
             }
         }
 
+        string processChain = string.Join(" > ", foregroundProcesses.Select(process => $"{process.ProcessId}:{process.ExecutablePath}"));
+        diagnostic = $"No Steam game matched. foregroundPid={processId}, title='{foregroundTitle}', processChain='{processChain}', installedGames={games.Count}, steamRoots='{string.Join("|", games.Select(game => game.SteamRoot).Distinct(StringComparer.OrdinalIgnoreCase))}'.";
         return null;
     }
 
@@ -591,6 +622,21 @@ internal static class SteamGameDetector
     {
         try
         {
+            using SafeFileHandle processHandle = OpenProcess(ProcessQueryLimitedInformation, false, processId);
+            if (!processHandle.IsInvalid)
+            {
+                var path = new StringBuilder(32768);
+                uint pathLength = (uint)path.Capacity;
+                if (QueryFullProcessImageName(processHandle, 0, path, ref pathLength) && pathLength > 0)
+                    return path.ToString();
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or UnauthorizedAccessException)
+        {
+        }
+
+        try
+        {
             using Process process = Process.GetProcessById((int)processId);
             return process.MainModule?.FileName;
         }
@@ -680,6 +726,11 @@ internal static class SteamGameDetector
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern SafeFileHandle OpenProcess(uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, uint processId);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryFullProcessImageName(
+        SafeFileHandle process, uint flags, StringBuilder executableName, ref uint size);
+
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsWow64Process(SafeFileHandle process, [MarshalAs(UnmanagedType.Bool)] out bool wow64Process);
@@ -726,34 +777,359 @@ internal static class SteamGameDetector
 internal static class SteamCoverProvider
 {
     private const long MaxDownloadBytes = 20 * 1024 * 1024;
+    private const long MaxAppInfoFileBytes = 128 * 1024 * 1024;
+    private const uint CryptProtectUiForbidden = 0x1;
+    private const uint AppInfoV40Magic = 0x07564428;
+    private const uint AppInfoV41Magic = 0x07564429;
     private static readonly HttpClient Client = CreateClient();
-
-    public static async Task<byte[]> GetCoverAsync(SteamGameInfo game, bool preferPortrait, CancellationToken cancellationToken)
+    private static readonly string[] SteamStaticHosts = ["shared.fastly.steamstatic.com", "shared.steamstatic.com"];
+    private static readonly HashSet<string> AppInfoAssetFileNames = new(StringComparer.OrdinalIgnoreCase)
     {
+        "library_capsule.jpg",
+        "library_capsule_2x.jpg",
+        "library_header.jpg",
+        "library_header_2x.jpg"
+    };
+    private sealed record CachedAppInfoAssets(long FileLength, long LastWriteUtcTicks, IReadOnlyDictionary<string, string> Paths);
+    private static readonly object AppInfoAssetsCacheGate = new();
+    private static readonly Dictionary<string, CachedAppInfoAssets> AppInfoAssetsCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly string SteamGridDbKeyPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JungleLeopardStudio", "steamgriddb.key");
+    private static readonly string SteamGridDbCachePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JungleLeopardStudio", "steamgriddb-cache");
+    private static readonly object SteamGridDbMissCacheGate = new();
+    private static readonly Dictionary<(uint AppId, bool Portrait), DateTime> SteamGridDbMissCache = new();
+
+    internal sealed record CoverResult(byte[] Bytes, string Source);
+
+    public static bool HasSteamGridDbApiKey
+    {
+        get
+        {
+            try { return !string.IsNullOrWhiteSpace(ReadSteamGridDbApiKey()); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException or CryptographicException or FormatException) { return false; }
+        }
+    }
+
+    public static void SaveSteamGridDbApiKey(string apiKey)
+    {
+        string normalized = apiKey.Trim();
+        if (normalized.Length is < 8 or > 4096 || normalized.Any(char.IsControl))
+            throw new ArgumentException("A chave API parece inválida. Confira o valor e tente novamente.", nameof(apiKey));
+
+        byte[] plainBytes = Encoding.UTF8.GetBytes(normalized);
+        byte[] protectedBytes;
+        try { protectedBytes = ProtectForCurrentUser(plainBytes); }
+        finally { CryptographicOperations.ZeroMemory(plainBytes); }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(SteamGridDbKeyPath)!);
+        string temporaryPath = SteamGridDbKeyPath + ".tmp";
+        try
+        {
+            File.WriteAllBytes(temporaryPath, protectedBytes);
+            File.Move(temporaryPath, SteamGridDbKeyPath, overwrite: true);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(protectedBytes);
+            try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+        lock (SteamGridDbMissCacheGate) SteamGridDbMissCache.Clear();
+    }
+
+    public static void RemoveSteamGridDbApiKey()
+    {
+        try { if (File.Exists(SteamGridDbKeyPath)) File.Delete(SteamGridDbKeyPath); }
+        finally { lock (SteamGridDbMissCacheGate) SteamGridDbMissCache.Clear(); }
+    }
+
+    public static async Task<CoverResult> GetCoverAsync(SteamGameInfo game, bool preferPortrait, CancellationToken cancellationToken)
+    {
+        CoverResult? communityCover = null;
+        bool communityLookupAttempted = false;
         string? cachedPath = FindCachedCover(game, preferPortrait);
         if (cachedPath is not null)
-            return await File.ReadAllBytesAsync(cachedPath, cancellationToken).ConfigureAwait(false);
+            return new CoverResult(await File.ReadAllBytesAsync(cachedPath, cancellationToken).ConfigureAwait(false), "cache local da Steam");
 
-        if (game.IsNonSteamShortcut)
+        if (!game.IsNonSteamShortcut)
         {
-            string orientation = preferPortrait ? "vertical" : "horizontal";
-            throw new InvalidOperationException($"Não encontrei arte {orientation} local para este atalho. Defina a arte correspondente em Steam > Biblioteca > Gerenciar > Definir arte personalizada.");
+            string[] requestedAssets = preferPortrait
+                ? ["library_capsule_2x.jpg", "library_capsule.jpg"]
+                : ["library_header_2x.jpg", "library_header.jpg"];
+            byte[]? requestedCover = await TrySourceAsync(
+                () => TryDownloadAppInfoAssetAsync(game, requestedAssets, cancellationToken), cancellationToken).ConfigureAwait(false);
+            if (requestedCover is not null)
+                return new CoverResult(requestedCover, "arte oficial da Steam");
+
+            string[] legacyAssetNames = preferPortrait
+                ? ["library_600x900_2x.jpg", "library_600x900.jpg", "library_capsule_2x.jpg", "library_capsule.jpg"]
+                : ["library_header_2x.jpg", "library_header.jpg"];
+            byte[]? legacyCover = await TrySourceAsync(
+                () => TryDownloadLegacyAssetsAsync(game, legacyAssetNames, cancellationToken), cancellationToken).ConfigureAwait(false);
+            if (legacyCover is not null)
+                return new CoverResult(legacyCover, "CDN da Steam");
+
+            // Prefer SteamGridDB art in the panel's requested orientation before falling back to a mismatched Steam image.
+            communityLookupAttempted = true;
+            communityCover = await TryGetSteamGridDbCoverAsync(game, preferPortrait, cancellationToken).ConfigureAwait(false);
+            if (communityCover is not null)
+                return communityCover;
+
+            if (preferPortrait)
+            {
+                string? horizontalCachedPath = FindCachedCover(game, preferPortrait: false);
+                if (horizontalCachedPath is not null)
+                    return new CoverResult(await File.ReadAllBytesAsync(horizontalCachedPath, cancellationToken).ConfigureAwait(false), "cache local da Steam (imagem horizontal)");
+
+                byte[]? horizontalCover = await TrySourceAsync(
+                    () => TryDownloadAppInfoAssetAsync(game, ["library_header_2x.jpg", "library_header.jpg"], cancellationToken), cancellationToken).ConfigureAwait(false);
+                if (horizontalCover is null)
+                    horizontalCover = await TrySourceAsync(
+                        () => TryDownloadLegacyAssetsAsync(game, ["library_header_2x.jpg", "library_header.jpg"], cancellationToken), cancellationToken).ConfigureAwait(false);
+                if (horizontalCover is not null)
+                    return new CoverResult(horizontalCover, "arte horizontal da Steam");
+            }
+
+            byte[]? storeHeader = await TrySourceAsync(() => DownloadStoreHeaderImageAsync(game, cancellationToken), cancellationToken).ConfigureAwait(false);
+            if (storeHeader is not null)
+                return new CoverResult(storeHeader, "página da loja Steam");
         }
 
-        string[] libraryAssetNames = preferPortrait
-            ? ["library_600x900_2x.jpg", "library_600x900.jpg"]
-            : ["library_header.jpg"];
-        foreach (string assetName in libraryAssetNames)
+        if (!communityLookupAttempted)
+            communityCover = await TryGetSteamGridDbCoverAsync(game, preferPortrait, cancellationToken).ConfigureAwait(false);
+        if (communityCover is not null)
+            return communityCover;
+
+        if (!HasSteamGridDbApiKey)
+            throw new InvalidOperationException("A Steam não forneceu uma imagem de capa acessível. Configure uma chave API do SteamGridDB na seção Integrações para habilitar o fallback.");
+        string direction = preferPortrait ? "vertical" : "horizontal";
+        throw new InvalidOperationException($"A Steam e o SteamGridDB não disponibilizaram uma capa {direction} para este jogo.");
+    }
+
+    private static async Task<byte[]?> TrySourceAsync(Func<Task<byte[]?>> source, CancellationToken cancellationToken)
+    {
+        try { return await source().ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or IOException or UnauthorizedAccessException or SecurityException or InvalidDataException)
         {
-            string libraryAssetUrl = $"https://shared.steamstatic.com/store_item_assets/steam/apps/{game.AppId}/{assetName}";
-            byte[]? libraryAsset = await TryDownloadImageAsync(libraryAssetUrl, cancellationToken).ConfigureAwait(false);
-            if (libraryAsset is not null)
-                return libraryAsset;
+            return null;
+        }
+    }
+
+    private static async Task<CoverResult?> TryGetSteamGridDbCoverAsync(
+        SteamGameInfo game,
+        bool preferPortrait,
+        CancellationToken cancellationToken)
+    {
+        string cachedCommunityPath = Path.Combine(SteamGridDbCachePath, $"{game.AppId}_{(preferPortrait ? "portrait" : "landscape")}.img");
+        if (File.Exists(cachedCommunityPath))
+        {
+            try { return new CoverResult(await File.ReadAllBytesAsync(cachedCommunityPath, cancellationToken).ConfigureAwait(false), "cache do SteamGridDB"); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
 
-        if (preferPortrait)
-            throw new InvalidOperationException("A Steam não disponibilizou a capa vertical no cache local nem no endereço público do jogo.");
+        var missKey = (game.AppId, preferPortrait);
+        lock (SteamGridDbMissCacheGate)
+            if (SteamGridDbMissCache.TryGetValue(missKey, out DateTime expiry) && expiry > DateTime.UtcNow)
+                return null;
 
+        string? apiKey;
+        try { apiKey = ReadSteamGridDbApiKey(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException or CryptographicException or FormatException)
+        { return null; }
+        if (string.IsNullOrWhiteSpace(apiKey))
+            return null;
+
+        string[] types = preferPortrait ? ["grids", "heroes"] : ["heroes", "grids"];
+        foreach (string type in types)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string dimensions = type == "grids"
+                ? (preferPortrait ? "600x900,660x930,342x482" : "920x430,460x215,600x900")
+                : "1920x620,3840x1240,1600x650";
+            IReadOnlyList<string> assetUrls = await FindSteamGridDbAssetUrlsAsync(type, game, dimensions, apiKey, cancellationToken).ConfigureAwait(false);
+            foreach (string assetUrl in assetUrls)
+            {
+                try
+                {
+                    byte[] bytes = await DownloadImageAsync(assetUrl, cancellationToken).ConfigureAwait(false);
+                    if (!LooksLikeSupportedImage(bytes))
+                        continue;
+                    Directory.CreateDirectory(SteamGridDbCachePath);
+                    await File.WriteAllBytesAsync(cachedCommunityPath, bytes, cancellationToken).ConfigureAwait(false);
+                    lock (SteamGridDbMissCacheGate) SteamGridDbMissCache.Remove(missKey);
+                    return new CoverResult(bytes, "SteamGridDB");
+                }
+                catch (HttpRequestException) { }
+                catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested) { }
+                catch (IOException) { }
+            }
+        }
+
+        lock (SteamGridDbMissCacheGate) SteamGridDbMissCache[missKey] = DateTime.UtcNow.AddMinutes(10);
+        return null;
+    }
+
+    private static async Task<IReadOnlyList<string>> FindSteamGridDbAssetUrlsAsync(string type, SteamGameInfo game, string dimensions, string apiKey, CancellationToken cancellationToken)
+    {
+        string collectionEndpoint = type == "grids" ? "grids" : "heroes";
+        if (!game.IsNonSteamShortcut)
+        {
+            IReadOnlyList<string> urls = await QuerySteamGridDbAssetUrlsAsync(
+                $"{collectionEndpoint}/steam/{game.AppId}?dimensions={Uri.EscapeDataString(dimensions)}&mimes=image%2Fpng%2Cimage%2Fjpeg&types=static&nsfw=false&humor=false&epilepsy=false&limit=5",
+                apiKey, cancellationToken).ConfigureAwait(false);
+            if (urls.Count > 0)
+                return urls;
+        }
+
+        string? gameId = await FindSteamGridDbGameIdByNameAsync(game.Name, apiKey, cancellationToken).ConfigureAwait(false);
+        return gameId is null ? Array.Empty<string>() : await QuerySteamGridDbAssetUrlsAsync(
+            $"{collectionEndpoint}/game/{gameId}?dimensions={Uri.EscapeDataString(dimensions)}&mimes=image%2Fpng%2Cimage%2Fjpeg&types=static&nsfw=false&humor=false&epilepsy=false&limit=5",
+            apiKey, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<string?> FindSteamGridDbGameIdByNameAsync(string name, string apiKey, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using JsonDocument response = await GetSteamGridDbJsonAsync($"search/autocomplete/{Uri.EscapeDataString(name)}", apiKey, cancellationToken).ConfigureAwait(false);
+            if (!response.RootElement.TryGetProperty("data", out JsonElement data) || data.ValueKind != JsonValueKind.Array)
+                return null;
+
+            string normalizedName = NormalizeGameTitle(name);
+            foreach (JsonElement result in data.EnumerateArray())
+            {
+                JsonElement candidate = result;
+                if (result.TryGetProperty("data", out JsonElement nested) && nested.ValueKind == JsonValueKind.Object)
+                    candidate = nested;
+                if (!candidate.TryGetProperty("name", out JsonElement title)
+                    || !string.Equals(NormalizeGameTitle(title.GetString() ?? ""), normalizedName, StringComparison.Ordinal))
+                    continue;
+                if (candidate.TryGetProperty("id", out JsonElement id) && id.TryGetInt32(out int value) && value > 0)
+                    return value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        { throw new InvalidOperationException("O SteamGridDB rejeitou a chave API configurada. Confira a chave em Integrações > SteamGridDB.", ex); }
+        catch (HttpRequestException) { }
+        catch (JsonException) { }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested) { }
+        return null;
+    }
+
+    private static string NormalizeGameTitle(string title)
+        => Regex.Replace(title.Normalize(NormalizationForm.FormKC), "[^\\p{L}\\p{N}]", "", RegexOptions.CultureInvariant).ToUpperInvariant();
+
+    private static async Task<IReadOnlyList<string>> QuerySteamGridDbAssetUrlsAsync(string endpoint, string apiKey, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using JsonDocument response = await GetSteamGridDbJsonAsync(endpoint, apiKey, cancellationToken).ConfigureAwait(false);
+            if (!response.RootElement.TryGetProperty("success", out JsonElement success)
+                || success.ValueKind != JsonValueKind.True
+                || !response.RootElement.TryGetProperty("data", out JsonElement data)
+                || data.ValueKind != JsonValueKind.Array)
+                return Array.Empty<string>();
+
+            var urls = new List<string>();
+            foreach (JsonElement asset in data.EnumerateArray())
+                if (asset.TryGetProperty("url", out JsonElement value)
+                    && Uri.TryCreate(value.GetString(), UriKind.Absolute, out Uri? url)
+                    && url.Scheme == Uri.UriSchemeHttps)
+                    urls.Add(url.AbsoluteUri);
+            return urls;
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        { throw new InvalidOperationException("O SteamGridDB rejeitou a chave API configurada. Confira a chave em Integrações > SteamGridDB.", ex); }
+        catch (HttpRequestException) { }
+        catch (JsonException) { }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested) { }
+        return Array.Empty<string>();
+    }
+
+    private static bool LooksLikeSupportedImage(ReadOnlySpan<byte> bytes)
+        => bytes.Length >= 8
+            && (bytes[..8].SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A })
+                || (bytes.Length >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF));
+
+    private static async Task<JsonDocument> GetSteamGridDbJsonAsync(string endpoint, string apiKey, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://www.steamgriddb.com/api/v2/" + endpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        using HttpResponseMessage response = await Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string? ReadSteamGridDbApiKey()
+    {
+        if (!File.Exists(SteamGridDbKeyPath))
+            return null;
+        FileInfo keyFile = new(SteamGridDbKeyPath);
+        if (keyFile.Length is <= 0 or > 64 * 1024)
+            return null;
+        byte[] encrypted = File.ReadAllBytes(SteamGridDbKeyPath);
+        byte[] plain;
+        try { plain = TransformWithDpapi(encrypted, protect: false); }
+        finally { CryptographicOperations.ZeroMemory(encrypted); }
+        try { return Encoding.UTF8.GetString(plain).Trim(); }
+        finally { CryptographicOperations.ZeroMemory(plain); }
+    }
+
+    private static byte[] ProtectForCurrentUser(byte[] input) => TransformWithDpapi(input, protect: true);
+
+    private static byte[] TransformWithDpapi(byte[] inputBytes, bool protect)
+    {
+        GCHandle inputHandle = GCHandle.Alloc(inputBytes, GCHandleType.Pinned);
+        var input = new DataBlob { Size = inputBytes.Length, Data = inputHandle.AddrOfPinnedObject() };
+        DataBlob output = default;
+        IntPtr description = IntPtr.Zero;
+        bool succeeded;
+        try
+        {
+            succeeded = protect
+                ? CryptProtectData(ref input, "SteamGridDB API key", IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, CryptProtectUiForbidden, out output)
+                : CryptUnprotectData(ref input, out description, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, CryptProtectUiForbidden, out output);
+        }
+        finally { inputHandle.Free(); }
+
+        try
+        {
+            if (!succeeded)
+                throw new CryptographicException(Marshal.GetLastWin32Error());
+            byte[] result = new byte[output.Size];
+            Marshal.Copy(output.Data, result, 0, result.Length);
+            return result;
+        }
+        finally
+        {
+            if (output.Data != IntPtr.Zero) _ = LocalFree(output.Data);
+            if (description != IntPtr.Zero) _ = LocalFree(description);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DataBlob { public int Size; public IntPtr Data; }
+
+    [DllImport("crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CryptProtectData(ref DataBlob input, string description, IntPtr optionalEntropy, IntPtr reserved,
+        IntPtr prompt, uint flags, out DataBlob output);
+
+    [DllImport("crypt32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CryptUnprotectData(ref DataBlob input, out IntPtr description, IntPtr optionalEntropy, IntPtr reserved,
+        IntPtr prompt, uint flags, out DataBlob output);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr memory);
+
+    private static async Task<byte[]?> DownloadStoreHeaderImageAsync(SteamGameInfo game, CancellationToken cancellationToken)
+    {
         string detailsUrl = $"https://store.steampowered.com/api/appdetails?appids={game.AppId}&l=en";
         using HttpResponseMessage detailsResponse = await Client.GetAsync(detailsUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         detailsResponse.EnsureSuccessStatusCode();
@@ -766,9 +1142,247 @@ internal static class SteamCoverProvider
             || !app.TryGetProperty("data", out JsonElement data)
             || !data.TryGetProperty("header_image", out JsonElement headerImage)
             || string.IsNullOrWhiteSpace(headerImage.GetString()))
-            throw new InvalidOperationException("A Steam não retornou a imagem de capa deste jogo.");
+            return null;
 
-        return await DownloadImageAsync(headerImage.GetString()!, cancellationToken).ConfigureAwait(false);
+        return await TryDownloadImageAsync(headerImage.GetString()!, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<byte[]?> TryDownloadAppInfoAssetAsync(
+        SteamGameInfo game,
+        IReadOnlyList<string> assetFileNames,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyDictionary<string, string> assets = await Task.Run(
+            () => GetAppInfoAssetPaths(game), cancellationToken).ConfigureAwait(false);
+        foreach (string assetFileName in assetFileNames)
+        {
+            if (!assets.TryGetValue(assetFileName, out string? relativePath))
+                continue;
+
+            HttpRequestException? lastRequestError = null;
+            foreach (string host in SteamStaticHosts)
+            {
+                string assetUrl = $"https://{host}/store_item_assets/steam/apps/{game.AppId}/{relativePath}";
+                try
+                {
+                    byte[]? image = await TryDownloadImageAsync(assetUrl, cancellationToken).ConfigureAwait(false);
+                    if (image is not null)
+                        return image;
+                }
+                catch (HttpRequestException ex)
+                {
+                    lastRequestError = ex;
+                }
+            }
+
+            if (lastRequestError is not null)
+                throw new HttpRequestException($"NÃ£o foi possÃ­vel baixar a arte Steam {assetFileName}.", lastRequestError);
+        }
+
+        return null;
+    }
+
+    private static async Task<byte[]?> TryDownloadLegacyAssetsAsync(
+        SteamGameInfo game,
+        IReadOnlyList<string> assetFileNames,
+        CancellationToken cancellationToken)
+    {
+        foreach (string assetFileName in assetFileNames)
+        {
+            string assetUrl = $"https://shared.steamstatic.com/store_item_assets/steam/apps/{game.AppId}/{assetFileName}";
+            byte[]? image = await TryDownloadImageAsync(assetUrl, cancellationToken).ConfigureAwait(false);
+            if (image is not null)
+                return image;
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyDictionary<string, string> GetAppInfoAssetPaths(SteamGameInfo game)
+    {
+        string appInfoPath = Path.Combine(game.SteamRoot, "appcache", "appinfo.vdf");
+        try
+        {
+            var appInfoFile = new FileInfo(appInfoPath);
+            if (!appInfoFile.Exists || appInfoFile.Length < 8 || appInfoFile.Length > MaxAppInfoFileBytes)
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            string cacheKey = $"{appInfoFile.FullName}|{game.AppId}";
+            long lastWriteTicks = appInfoFile.LastWriteTimeUtc.Ticks;
+            lock (AppInfoAssetsCacheGate)
+            {
+                if (AppInfoAssetsCache.TryGetValue(cacheKey, out CachedAppInfoAssets? cached)
+                    && cached.FileLength == appInfoFile.Length
+                    && cached.LastWriteUtcTicks == lastWriteTicks)
+                    return cached.Paths;
+            }
+
+            Dictionary<string, string> paths = ReadAppInfoAssetPaths(appInfoFile.FullName, game.AppId);
+            lock (AppInfoAssetsCacheGate)
+                AppInfoAssetsCache[cacheKey] = new CachedAppInfoAssets(appInfoFile.Length, lastWriteTicks, paths);
+            return paths;
+        }
+        catch (IOException) { return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); }
+        catch (UnauthorizedAccessException) { return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); }
+        catch (SecurityException) { return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); }
+        catch (InvalidDataException) { return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); }
+        catch (ArgumentException) { return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); }
+        catch (OverflowException) { return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); }
+    }
+
+    private static Dictionary<string, string> ReadAppInfoAssetPaths(string appInfoPath, uint targetAppId)
+    {
+        byte[] data = File.ReadAllBytes(appInfoPath);
+        using var stream = new MemoryStream(data, writable: false);
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        uint magic = reader.ReadUInt32();
+        bool usesStringTable = magic == AppInfoV41Magic;
+        if (!usesStringTable && magic != AppInfoV40Magic)
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        _ = reader.ReadUInt32(); // Steam universe
+        ulong stringTableOffset = usesStringTable ? reader.ReadUInt64() : 0;
+        string[]? stringTable = usesStringTable ? ReadAppInfoStringTable(data, stringTableOffset) : null;
+        long entriesEnd = usesStringTable ? checked((long)stringTableOffset) : stream.Length;
+        stream.Position = usesStringTable ? 16 : 8;
+
+        while (stream.Position + sizeof(uint) <= entriesEnd)
+        {
+            uint appId = reader.ReadUInt32();
+            if (appId == 0 || stream.Position + sizeof(uint) > entriesEnd)
+                break;
+
+            uint entrySize = reader.ReadUInt32();
+            long entryEnd = checked(stream.Position + entrySize);
+            if (entrySize < 60 || entryEnd > entriesEnd)
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            if (appId == targetAppId)
+            {
+                stream.Position += 60; // Fixed entry metadata before the binary VDF payload.
+                int payloadLength = checked((int)(entryEnd - stream.Position));
+                using var payloadStream = new MemoryStream(data, checked((int)stream.Position), payloadLength, writable: false);
+                using var payloadReader = new BinaryReader(payloadStream, Encoding.UTF8, leaveOpen: true);
+                Dictionary<string, object?> appInfo = ReadAppInfoObject(payloadReader, stringTable, usesStringTable, depth: 0);
+                var assets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                CollectAppInfoAssetPaths(appInfo, assets);
+                return assets;
+            }
+
+            stream.Position = entryEnd;
+        }
+
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string[] ReadAppInfoStringTable(byte[] data, ulong offset)
+    {
+        if (offset > (ulong)data.Length || (ulong)data.Length - offset < sizeof(uint) || offset > int.MaxValue)
+            throw new InvalidDataException("A tabela de strings do appinfo.vdf estÃ¡ fora do arquivo.");
+
+        using var stream = new MemoryStream(data, (int)offset, data.Length - (int)offset, writable: false);
+        using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+        uint count = reader.ReadUInt32();
+        if (count > 100_000)
+            throw new InvalidDataException("A tabela de strings do appinfo.vdf excede o limite esperado.");
+
+        var strings = new string[checked((int)count)];
+        for (int index = 0; index < strings.Length; index++)
+            strings[index] = ReadAppInfoNullTerminatedString(reader);
+        return strings;
+    }
+
+    private static Dictionary<string, object?> ReadAppInfoObject(
+        BinaryReader reader,
+        string[]? stringTable,
+        bool usesStringTable,
+        int depth)
+    {
+        if (depth > 64)
+            throw new InvalidDataException("A estrutura do appinfo.vdf Ã© profunda demais.");
+
+        var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        while (reader.BaseStream.Position < reader.BaseStream.Length)
+        {
+            byte type = reader.ReadByte();
+            if (type == 8)
+                return values;
+
+            string key;
+            if (usesStringTable)
+            {
+                uint keyIndex = reader.ReadUInt32();
+                if (stringTable is null || keyIndex >= (uint)stringTable.Length)
+                    throw new InvalidDataException("O appinfo.vdf referencia uma chave invÃ¡lida.");
+                key = stringTable[checked((int)keyIndex)];
+            }
+            else
+            {
+                key = ReadAppInfoNullTerminatedString(reader);
+            }
+
+            object? value = type switch
+            {
+                0 => ReadAppInfoObject(reader, stringTable, usesStringTable, depth + 1),
+                1 => ReadAppInfoNullTerminatedString(reader),
+                2 => reader.ReadInt32(),
+                3 => reader.ReadSingle(),
+                4 => reader.ReadUInt32(),
+                5 => ReadAppInfoNullTerminatedWideString(reader),
+                6 => reader.ReadUInt32(),
+                7 => reader.ReadUInt64(),
+                10 => reader.ReadInt64(),
+                _ => throw new InvalidDataException($"Tipo binÃ¡rio VDF nÃ£o reconhecido: {type}.")
+            };
+            values[key] = value;
+        }
+
+        throw new EndOfStreamException("O appinfo.vdf terminou antes do fechamento de um objeto.");
+    }
+
+    private static string ReadAppInfoNullTerminatedString(BinaryReader reader)
+    {
+        using var bytes = new MemoryStream();
+        while (reader.BaseStream.Position < reader.BaseStream.Length && bytes.Length < 64 * 1024)
+        {
+            byte value = reader.ReadByte();
+            if (value == 0)
+                return Encoding.UTF8.GetString(bytes.GetBuffer(), 0, checked((int)bytes.Length));
+            bytes.WriteByte(value);
+        }
+
+        throw new InvalidDataException("Uma string do appinfo.vdf nÃ£o terminou corretamente.");
+    }
+
+    private static string ReadAppInfoNullTerminatedWideString(BinaryReader reader)
+    {
+        var result = new StringBuilder();
+        while (reader.BaseStream.Position + sizeof(ushort) <= reader.BaseStream.Length && result.Length < 32 * 1024)
+        {
+            ushort value = reader.ReadUInt16();
+            if (value == 0)
+                return result.ToString();
+            result.Append((char)value);
+        }
+
+        throw new InvalidDataException("Uma string Unicode do appinfo.vdf nÃ£o terminou corretamente.");
+    }
+
+    private static void CollectAppInfoAssetPaths(object? value, Dictionary<string, string> assets)
+    {
+        if (value is string text)
+        {
+            Match match = Regex.Match(text, @"^(?<hash>[a-f0-9]{40})/(?<file>[^/]+)$", RegexOptions.IgnoreCase);
+            if (match.Success && AppInfoAssetFileNames.Contains(match.Groups["file"].Value))
+                assets.TryAdd(match.Groups["file"].Value, text);
+            return;
+        }
+
+        if (value is Dictionary<string, object?> dictionary)
+        {
+            foreach (object? child in dictionary.Values)
+                CollectAppInfoAssetPaths(child, assets);
+        }
     }
 
     private static string? FindCachedCover(SteamGameInfo game, bool preferPortrait)
@@ -776,8 +1390,8 @@ internal static class SteamCoverProvider
         string id = game.AppId.ToString();
         string[] extensions = [".jpg", ".png", ".webp", ".jpeg"];
         string[] baseNames = preferPortrait
-            ? [$"{id}p", $"{id}_library_600x900_2x", $"{id}_library_600x900", $"{id}_library_capsule"]
-            : [$"{id}_library_header", $"{id}_header", id, $"{id}_hero", $"{id}_library_hero"];
+            ? [$"{id}p", $"{id}_library_600x900_2x", $"{id}_library_600x900", $"{id}_library_capsule_2x", $"{id}_library_capsule"]
+            : [$"{id}_library_header_2x", $"{id}_library_header", $"{id}_header", id, $"{id}_hero", $"{id}_library_hero"];
         string[] candidates = baseNames.SelectMany(name => extensions.Select(extension => name + extension)).ToArray();
 
         var directories = new List<string>();

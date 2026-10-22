@@ -28,7 +28,7 @@ Aplicativo Windows de código aberto para criar temas, monitorar dados do comput
 - Escolhe arte vertical ou horizontal conforme a orientação ativa do painel.
 - O editor da integração mantém layouts separados para retrato e paisagem. A capa Steam obrigatória pode ser posicionada e redimensionada; o layout aceita outras camadas.
 - O fundo da exibição Steam é preto. A opção de capa automática pode ser ligada ou desligada em **Integrações**.
-- A arte é procurada primeiro nos arquivos locais da Steam e, quando aplicável, pode ser baixada da internet.
+- A arte é procurada nos arquivos locais e na CDN da Steam. Se a Steam não fornecer uma capa compatível, o app pode usar o SteamGridDB como fallback. Configure uma chave API em **Integrações > SteamGridDB**; o Windows a protege para o usuário atual.
 
 ### Painel e múltiplas telas
 
@@ -61,7 +61,7 @@ O Windows e a biblioteca LibreHardwareMonitor integrada fornecem a maior parte d
 ### Para executar
 
 - Windows 10 ou Windows 11, 64 bits.
-- .NET 10 Desktop Runtime. O pacote publicado abaixo é framework-dependent e não inclui o runtime.
+- O ZIP de release é autocontido e inclui o runtime do .NET 10.
 - Painel Jungle Leopard compatível conectado por USB para controlar um LCD. Recursos de biblioteca, edição e prévia também podem ser usados sem o painel.
 
 ### Para compilar
@@ -93,7 +93,7 @@ Para publicar uma versão Windows x64 na pasta `build\release`:
 dotnet publish .\JungleLeopardPoc.csproj `
   -c Release `
   -r win-x64 `
-  --self-contained false `
+  --self-contained true `
   -o .\build\release
 ```
 
