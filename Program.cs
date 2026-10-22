@@ -29,6 +29,38 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args.Length == 2
+            && args[0].Equals("--setup-cpu-sensor", StringComparison.Ordinal)
+            && int.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out int sensorSetupParentProcessId))
+        {
+            CpuSensorSetupResult setup = CpuSensorSupport.InstallAndConfigure(sensorSetupParentProcessId);
+            if (!setup.Succeeded)
+            {
+                MessageBox.Show(
+                    $"Não foi possível configurar o acesso aos sensores de hardware.\n\n{setup.Error}",
+                    "Sensores de hardware não configurados",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return;
+            }
+
+            string taskStatus = setup.MatchingStartupTasks == 0
+                ? "Não encontrei uma tarefa de logon que execute este arquivo. Se você o inicia pelo Agendador, abra a tarefa e marque ‘Executar com privilégios mais altos’ na guia Geral."
+                : setup.ElevatedStartupTasks < setup.MatchingStartupTasks
+                    ? "Algumas tarefas correspondentes não puderam ser atualizadas. Confira na guia Geral da tarefa se ‘Executar com privilégios mais altos’ está marcado."
+                    : "A tarefa de logon correspondente foi configurada para executar com privilégios mais altos.";
+            string rebootStatus = setup.RebootRequired
+                ? "\n\nO Windows informou que é necessário reiniciar para ativar o driver."
+                : "";
+            MessageBox.Show(
+                $"Suporte a sensores de hardware configurado. O PawnIO está instalado e o aplicativo usa o LibreHardwareMonitor integrado; o Jungle Leopard Display não é necessário.\n\n{taskStatus}{rebootStatus}",
+                "Suporte a sensores de hardware",
+                MessageBoxButtons.OK,
+                setup.MatchingStartupTasks > 0 && setup.ElevatedStartupTasks == setup.MatchingStartupTasks
+                    ? MessageBoxIcon.Information
+                    : MessageBoxIcon.Warning);
+        }
+
         if (args.Length == 3
             && args[0].Equals("--fps-broker", StringComparison.Ordinal)
             && args[1].StartsWith("JungleLeopardFps_", StringComparison.Ordinal)
@@ -129,7 +161,7 @@ internal sealed class LcdStudioBackend
     private readonly BackendTextState _startupImageName = new("Nenhuma mídia selecionada");
     private readonly BackendTextState _standbyImageName = new("Nenhuma mídia selecionada");
     private readonly BackendProgressState _animationUploadProgress = new();
-    private readonly BackendTextState _animationUploadStatus = new("Pronto");
+    private readonly BackendTextState _animationUploadStatus = new("Nenhum envio de mídia em andamento.");
     private readonly BackendProgressState _firmwareProgress = new();
     private readonly BackendTextState _firmwareStatus = new("Consulte o firmware do painel para buscar atualizações.");
     private readonly HtSensorReader _telemetrySensors = new();
@@ -304,6 +336,8 @@ internal sealed class LcdStudioBackend
     internal string FirmwareDescription => _firmwareStatus.Text;
     internal string StartupMediaDescription => _startupImageName.Text;
     internal string StandbyMediaDescription => _standbyImageName.Text;
+    internal string? StartupMediaPath => _startupImagePath;
+    internal string? StandbyMediaPath => _standbyImagePath;
     internal string MediaUploadStatus => _animationUploadStatus.Text;
     internal int MediaUploadProgress => _animationUploadProgress.Value;
     internal string PanelStatusDescription => _sidebarDeviceStatus.Text;
@@ -640,6 +674,9 @@ internal sealed class LcdStudioBackend
         else AppSensorSettings.SensorSelections[key] = choice.Name;
         SaveSettings(_rotationSelector.SelectedIndex, _autoSteamCover.Checked);
     }
+
+    internal bool StartCpuSensorSetupFromStudio(out string? error)
+        => CpuSensorSupport.StartSetupProcess(out error);
 
     public LcdStudioBackend()
     {
@@ -1744,12 +1781,14 @@ internal sealed class LcdStudioBackend
             {
                 _standbyImagePath = dialog.FileName;
                 _standbyImageName.Text = $"{Path.GetFileName(dialog.FileName)} · {fileInfo.Length:N0} bytes";
+                _animationUploadStatus.Text = "Arquivo selecionado; ainda não foi enviado ao painel.";
                 _uploadStandbyImageButton.Enabled = true;
             }
             else
             {
                 _startupImagePath = dialog.FileName;
                 _startupImageName.Text = $"{Path.GetFileName(dialog.FileName)} · {fileInfo.Length:N0} bytes";
+                _animationUploadStatus.Text = "Arquivo selecionado; ainda não foi enviado ao painel.";
                 _uploadStartupImageButton.Enabled = true;
             }
         }
@@ -1816,8 +1855,8 @@ internal sealed class LcdStudioBackend
             _animationUploadStatus.Text = "Enviando arquivo original…";
             await Task.Run(() => UploadPanelMediaFile(port, mediaPath, standby, SetAnimationUploadProgressFromWorker));
             _animationUploadProgress.Value = 100;
-            _animationUploadStatus.Text = "Gravada; controlador reiniciado.";
-            SetStatus($"Mídia de {(standby ? "espera" : "inicialização")} enviada sem conversão ({mediaLength:N0} bytes).");
+            _animationUploadStatus.Text = "Envio concluído; reinicialização solicitada. Exibição no painel não verificada.";
+            SetStatus("Mídia enviada ao controlador; exibição no painel não verificada.");
         }
         catch (Exception ex)
         {
@@ -1839,13 +1878,13 @@ internal sealed class LcdStudioBackend
                     {
                         StartStreaming(automatic: true);
                         SetStatus(maintenanceFailure is null
-                            ? "Mídia gravada; a transmissão anterior foi retomada."
+                            ? "Envio da mídia finalizado; transmissão anterior retomada. Exibição não verificada."
                             : $"A gravação falhou ({maintenanceFailure}), mas a transmissão anterior foi retomada.");
                     }
                     else
                     {
                         SetStatus(maintenanceFailure is null
-                            ? "Mídia gravada; abra a transmissão novamente quando o painel estiver livre."
+                            ? "Envio da mídia finalizado; abra a transmissão novamente quando o painel estiver livre. Exibição não verificada."
                             : $"A gravação falhou ({maintenanceFailure}) e a transmissão não pôde ser retomada porque o painel não está disponível.");
                     }
                 }
@@ -4038,8 +4077,20 @@ internal sealed class LcdStudioBackend
                 int brightness = CurrentBrightness;
                 if (HasActiveTheme && now >= nextThemeFrame)
                 {
-                    int sceneFrameRate = connected.Max(panel => GetPanelFrameRate(panel.Port));
-                    nextThemeFrame = now.AddMilliseconds(Math.Max(1, 1000 / sceneFrameRate));
+                    // Rendering a theme also composites the scene, encodes a JPEG,
+                    // and creates a preview image. Do not do that faster than the
+                    // connected panels can receive the current frame over USB.
+                    byte[]? previousImage = Volatile.Read(ref _jpegBytes);
+                    Dictionary<string, byte[]> previousPanelFrames = Volatile.Read(ref _panelJpegFrames);
+                    int renderInterval = connected.Max(panel =>
+                    {
+                        byte[]? panelImage = previousPanelFrames.TryGetValue(panel.Port, out byte[]? composedImage)
+                            ? composedImage
+                            : previousImage;
+                        return PanelConnection.GetMinimumImageFrameIntervalMilliseconds(
+                            panelImage?.Length ?? 0, GetPanelFrameRate(panel.Port));
+                    });
+                    nextThemeFrame = now.AddMilliseconds(Math.Max(1, renderInterval));
                     try
                     {
                         if (Volatile.Read(ref _multiScreenCompositionActive))

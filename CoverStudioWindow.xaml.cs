@@ -35,7 +35,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
     private readonly List<ThemeItem> _libraryItems = [];
     private readonly ObservableCollection<ThemeItem> _localThemes = [];
     private readonly ObservableCollection<ThemeItem> _catalogThemes = [];
-    private readonly DispatcherTimer _livePreviewTimer = new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(1000d / 60d) };
+    private readonly DispatcherTimer _livePreviewTimer = new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(1000d / 30d) };
     private readonly object _previewRendererGate = new();
     private ThemeItem? _selectedLocal;
     private ThemeItem? _selectedCatalog;
@@ -69,7 +69,9 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
         {
             SyncScreenOptionsFromController();
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RefreshPanelOrientation));
+            UpdateLivePreviewTimer();
         };
+        IsVisibleChanged += (_, _) => UpdateLivePreviewTimer();
         Unloaded += (_, _) => StopLivePreview();
         LocalList.ItemsSource = _localThemes;
         CatalogList.ItemsSource = _catalogThemes;
@@ -747,7 +749,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
             _previewRenderer = new HtThemeRenderer(package, FitThemeToScreenToggle.IsChecked == true);
             _previewGeneration++;
         }
-        _livePreviewTimer.Start();
+        UpdateLivePreviewTimer();
         _ = RenderLivePreviewAsync();
         return true;
     }
@@ -793,7 +795,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
     private async Task RenderLivePreviewAsync()
     {
         HtThemeRenderer? renderer = _previewRenderer;
-        if (renderer is null || _previewRenderInProgress || _selectedLocal is null || _isCatalogView)
+        if (!IsVisible || renderer is null || _previewRenderInProgress || _selectedLocal is null || _isCatalogView)
             return;
 
         _previewRenderInProgress = true;
@@ -811,7 +813,7 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
                     return CopyFramePixels(frame);
                 }
             });
-            if (framePixels is null || generation != _previewGeneration || !ReferenceEquals(renderer, _previewRenderer))
+            if (framePixels is null || !IsVisible || generation != _previewGeneration || !ReferenceEquals(renderer, _previewRenderer))
                 return;
 
             UpdateOrientation();
@@ -873,6 +875,21 @@ public partial class CoverStudioWindow : System.Windows.Controls.UserControl
     }
 
     private static int GetBgr24Stride(int width) => (width * 3 + 3) & ~3;
+
+    private void UpdateLivePreviewTimer()
+    {
+        if (IsVisible && _previewRenderer is not null && _selectedLocal is not null && !_isCatalogView)
+        {
+            if (!_livePreviewTimer.IsEnabled)
+            {
+                _livePreviewTimer.Start();
+                _ = RenderLivePreviewAsync();
+            }
+            return;
+        }
+
+        _livePreviewTimer.Stop();
+    }
 
     private void StopLivePreview()
     {

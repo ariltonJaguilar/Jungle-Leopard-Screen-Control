@@ -17,6 +17,7 @@ namespace JungleLeopardPoc;
 /// <summary>Renders the common live components in an imported Jungle Leopard .ht scene.</summary>
 internal sealed class HtThemeRenderer : IDisposable
 {
+    private const double GaugeTransitionDurationMilliseconds = 1500;
     private ThemePackage _package;
     private JsonElement _definition;
     private readonly bool _fitToScreen;
@@ -1622,8 +1623,10 @@ internal sealed class HtThemeRenderer : IDisposable
     private static float ProgressTransitionValue(ProgressTransition transition, long now)
     {
         double elapsedMilliseconds = Stopwatch.GetElapsedTime(transition.StartedAt, now).TotalMilliseconds;
-        float progress = (float)Math.Clamp(elapsedMilliseconds / 300d, 0, 1);
-        float eased = CubicBezierEasing(progress, .25, .1, .25, 1);
+        float progress = (float)Math.Clamp(elapsedMilliseconds / GaugeTransitionDurationMilliseconds, 0, 1);
+        // Ease in and out evenly so the first rendered frame does not jump most
+        // of the way to a new sensor value before the display catches up.
+        float eased = CubicBezierEasing(progress, .42, 0, .58, 1);
         return transition.From + (transition.Target - transition.From) * eased;
     }
 
@@ -2464,6 +2467,9 @@ internal sealed class HtSensorReader
     private static LibreHardwareMonitor.Hardware.Computer? _hardwareMonitor;
     private static DateTime _hardwareMonitorNextRetryUtc;
     private static DateTime _nextHardwareSensorRefreshUtc;
+    private static DateTime _cpuTemperatureMissingSinceUtc;
+    private static int _cpuTemperatureRecoveryAttempts;
+    private static bool _cpuTemperatureFailureLogged;
     private static IReadOnlyList<MonitorSensor> _lastHardwareMonitorSensors = [];
     private static IReadOnlyList<MonitorSensor> _lastAvailableMonitorSensors = [];
     private static ulong _lastIdle;
@@ -2551,8 +2557,13 @@ internal sealed class HtSensorReader
         IReadOnlyList<MonitorSensor> monitorSensors = ReadMonitorSensors()
             .Concat(ReadLibreHardwareMonitorSensors())
             .Concat(ReadOriginalSystemInfosSensors())
-            .DistinctBy(sensor => $"{sensor.Type}\0{sensor.Name}", StringComparer.OrdinalIgnoreCase)
+            .GroupBy(sensor => $"{sensor.Type}\0{sensor.Name}", StringComparer.OrdinalIgnoreCase)
+            // A provider can keep publishing a stale zero while another provider
+            // has a usable reading for the same sensor. Prefer the usable value
+            // before collapsing duplicates so the invalid one cannot hide it.
+            .Select(group => group.FirstOrDefault(sensor => IsUsableSensorValue(sensor.Type, sensor.Value)) ?? group.First())
             .ToArray();
+        RecoverHardwareMonitorIfCpuTemperatureIsMissing(monitorSensors);
         double? selectedCpuUtilization = FindExplicitMonitorValue(monitorSensors, "CPU", "Load", "cpuLayout_utilization");
         if (AppSensorSettings.HasSensorSelection("cpuLayout_utilization"))
         {
@@ -2589,9 +2600,9 @@ internal sealed class HtSensorReader
         }
 
         double? selectedCpuTemperature = FindExplicitMonitorValue(monitorSensors, "CPU", "Temperature", "cpuLayout_temperature");
-        snapshot.CpuTemperature = AppSensorSettings.HasSensorSelection("cpuLayout_temperature")
-            ? selectedCpuTemperature
-            : FindMonitorValue(monitorSensors, "CPU", "Temperature") ?? ReadAcpiTemperature();
+        snapshot.CpuTemperature = selectedCpuTemperature
+            ?? FindMonitorValue(monitorSensors, "CPU", "Temperature")
+            ?? ReadAcpiTemperature();
         double? selectedGpuTemperature = FindExplicitMonitorValue(monitorSensors, "GPU", "Temperature", "graphics_temperature");
         double? nvidiaGpuTemperature = ReadNvidiaStats(
             snapshot,
@@ -2966,6 +2977,7 @@ internal sealed class HtSensorReader
                 {
                     try { computer.Close(); } catch (Exception closeEx) when (IsOptionalHardwareMonitorFailure(closeEx)) { }
                     _hardwareMonitorNextRetryUtc = now.AddSeconds(30);
+                    WriteSensorDiagnostic($"LibreHardwareMonitor Open falhou ({ex.GetType().Name}): {ex.Message}");
                     return [];
                 }
             }
@@ -2990,6 +3002,84 @@ internal sealed class HtSensorReader
             _nextHardwareSensorRefreshUtc = now.AddSeconds(1);
             return _lastHardwareMonitorSensors;
         }
+    }
+
+    private static void RecoverHardwareMonitorIfCpuTemperatureIsMissing(IReadOnlyList<MonitorSensor> sensors)
+    {
+        bool hasCpuTemperature = sensors.Any(sensor =>
+            sensor.Type.Contains("Temperature", StringComparison.OrdinalIgnoreCase)
+            && MonitorNameMatches(sensor.Name, "CPU")
+            && IsUsableSensorValue(sensor.Type, sensor.Value));
+        DateTime now = DateTime.UtcNow;
+
+        lock (HardwareMonitorLock)
+        {
+            LibreHardwareMonitor.Hardware.Computer? hardwareMonitor = _hardwareMonitor;
+            if (hasCpuTemperature)
+            {
+                if (_cpuTemperatureRecoveryAttempts > 0)
+                    WriteSensorDiagnostic("Temperatura da CPU voltou a ser detectada após reabrir o monitor.");
+                _cpuTemperatureMissingSinceUtc = DateTime.MinValue;
+                _cpuTemperatureRecoveryAttempts = 0;
+                _cpuTemperatureFailureLogged = false;
+                return;
+            }
+
+            if (hardwareMonitor is null)
+            {
+                _cpuTemperatureMissingSinceUtc = DateTime.MinValue;
+                return;
+            }
+
+            const int maximumRecoveryAttempts = 5;
+            if (_cpuTemperatureRecoveryAttempts >= maximumRecoveryAttempts)
+            {
+                if (!_cpuTemperatureFailureLogged)
+                {
+                    string[] cpuTemperatureSensors = sensors
+                        .Where(sensor => sensor.Type.Contains("Temperature", StringComparison.OrdinalIgnoreCase)
+                            && MonitorNameMatches(sensor.Name, "CPU"))
+                        .Select(sensor => $"{sensor.Name}={sensor.Value.ToString(CultureInfo.InvariantCulture)}")
+                        .ToArray();
+                    string sources = cpuTemperatureSensors.Length == 0 ? "nenhuma fonte de temperatura da CPU" : string.Join("; ", cpuTemperatureSensors);
+                    WriteSensorDiagnostic($"Temperatura da CPU indisponível após {maximumRecoveryAttempts} tentativas de recuperação. Sensores reportados: {sources}");
+                    _cpuTemperatureFailureLogged = true;
+                }
+                return;
+            }
+            if (_cpuTemperatureMissingSinceUtc == DateTime.MinValue)
+            {
+                _cpuTemperatureMissingSinceUtc = now;
+                return;
+            }
+
+            if (now - _cpuTemperatureMissingSinceUtc < TimeSpan.FromSeconds(20)) return;
+
+            try { hardwareMonitor.Close(); }
+            catch (Exception ex) when (IsOptionalHardwareMonitorFailure(ex)) { }
+            _hardwareMonitor = null;
+            _lastHardwareMonitorSensors = [];
+            _hardwareMonitorNextRetryUtc = now.AddSeconds(2);
+            _nextHardwareSensorRefreshUtc = _hardwareMonitorNextRetryUtc;
+            _cpuTemperatureMissingSinceUtc = DateTime.MinValue;
+            _cpuTemperatureRecoveryAttempts++;
+            _cpuTemperatureFailureLogged = false;
+            WriteSensorDiagnostic($"Temperatura da CPU ausente por 20 s; reabrindo monitor (tentativa {_cpuTemperatureRecoveryAttempts}/{maximumRecoveryAttempts}).");
+        }
+    }
+
+    private static void WriteSensorDiagnostic(string message)
+    {
+        try
+        {
+            string directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "JungleLeopardStudio");
+            Directory.CreateDirectory(directory);
+            string path = Path.Combine(directory, "sensor-diagnostics.log");
+            File.AppendAllText(path, $"{DateTimeOffset.Now:O} {message}{Environment.NewLine}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or ArgumentException) { }
     }
 
     private static void ReadLibreHardwareMonitorHardware(

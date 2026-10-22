@@ -4,6 +4,10 @@ Aplicativo Windows de código aberto para criar temas, monitorar dados do comput
 
 > O suporte depende do modelo, da controladora e do firmware. O projeto não inclui o programa proprietário Jungle Leopard Display nem depende dele para editar ou renderizar temas.
 
+## Destaques
+
+- **Capas da Steam no LCD:** detecta o jogo em primeiro plano, busca a arte correspondente e a atualiza automaticamente no painel. O editor permite personalizar layouts separados para telas em retrato e paisagem.
+
 ## Funcionalidades
 
 - A interface usa português quando o idioma de exibição do Windows é português e inglês nos demais casos.
@@ -43,7 +47,7 @@ Os temas podem mostrar, quando o hardware e o provedor publicam a leitura:
 - relógio, informações da sessão de mídia e letras sincronizadas;
 - FPS do aplicativo/jogo em primeiro plano.
 
-O Windows e a biblioteca LibreHardwareMonitor fornecem a maior parte dos sensores; alguns dados de GPU também podem vir de `nvidia-smi` ou WMI. FPS é medido pelo PresentMon incluído no projeto. O aplicativo inicia o componente quando um tema solicita esse sensor; a coleta pode pedir elevação pelo UAC. Não é necessário instalar PresentMon separadamente. A disponibilidade e a precisão de temperaturas, ventoinhas, potência e outros sensores variam conforme o hardware, o driver e as permissões. Uma fonte sem leitura deve ser tratada como indisponível, não como uma medição válida.
+O Windows e a biblioteca LibreHardwareMonitor integrada fornecem a maior parte dos sensores; alguns dados de GPU também podem vir de `nvidia-smi` ou WMI. **Alguns sensores que precisam de acesso de baixo nível ao hardware exigem o driver PawnIO.** O instalador oficial e assinado está incluído no aplicativo; instale-o uma vez pela página **Dados dos temas**, no botão **Configurar sensores de hardware**, e autorize a solicitação do Windows. Para ler esses sensores ao iniciar com o Windows, o aplicativo também configura a tarefa de logon para executar com privilégios mais altos. O driver permanece instalado após reiniciar. Não é necessário manter o Jungle Leopard Display ou outro programa de monitoramento aberto. FPS é medido pelo PresentMon incluído no projeto. A disponibilidade e a precisão de temperaturas, ventoinhas, potência e outros sensores variam conforme o hardware, o driver e as permissões. Uma fonte sem leitura deve ser tratada como indisponível, não como uma medição válida.
 
 ### Preferências e mídia
 

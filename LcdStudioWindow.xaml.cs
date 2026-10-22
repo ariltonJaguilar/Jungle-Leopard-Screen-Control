@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Brush = System.Windows.Media.Brush;
 using Button = System.Windows.Controls.Button;
@@ -28,6 +29,7 @@ public partial class LcdStudioWindow : Window
     private readonly ObservableCollection<string> _panelItems = [];
     private string _panelCanvasSignature = string.Empty;
     private readonly Dictionary<string, TextBlock> _sensorValues = new(StringComparer.OrdinalIgnoreCase);
+    private TextBlock? _cpuSensorSupportStatus;
     private readonly Dictionary<string, TextBlock> _deviceValues = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ComboBox> _sensorSourceSelectors = new(StringComparer.OrdinalIgnoreCase);
     private readonly ListBox _panelList = new();
@@ -50,6 +52,8 @@ public partial class LcdStudioWindow : Window
     private TextBlock? _firmwareStatus;
     private TextBlock? _mediaStatus;
     private ProgressBar? _mediaProgress;
+    private PanelMediaPreview? _startupMediaPreview;
+    private PanelMediaPreview? _standbyMediaPreview;
     private Button? _stopTransmissionButton;
     private Button? _restartUsbButton;
     private TextBlock? _restartUsbStatus;
@@ -67,6 +71,15 @@ public partial class LcdStudioWindow : Window
     private bool _exitFromTray;
     private CoverStudioWindow? _coverStudio;
     private HtThemeEditorWindow? _themeEditor;
+
+    private sealed class PanelMediaPreview(Image image, TextBlock details, TextBlock hint)
+    {
+        internal Image Image { get; } = image;
+        internal TextBlock Details { get; } = details;
+        internal TextBlock Hint { get; } = hint;
+        internal string? LoadedPath { get; set; }
+        internal string? PreviewDimensions { get; set; }
+    }
 
     internal LcdStudioWindow(LcdStudioBackend controller)
     {
@@ -197,6 +210,8 @@ public partial class LcdStudioWindow : Window
             _firmwareStatus!.Text = _controller.FirmwareDescription;
             _mediaStatus!.Text = _controller.MediaUploadStatus;
             _mediaProgress!.Value = _controller.MediaUploadProgress;
+            RefreshPanelMediaPreview(standby: false);
+            RefreshPanelMediaPreview(standby: true);
             _stopTransmissionButton!.IsEnabled = _controller.TransmissionActive;
             _restartUsbButton!.IsEnabled = !_controller.DeviceMaintenanceInProgress;
             _restartUsbStatus!.Text = _controller.UsbResetStatus;
@@ -235,6 +250,8 @@ public partial class LcdStudioWindow : Window
             _sensorValues["gpu"].Text = _controller.GpuSensorText;
             _sensorValues["cpu-temp"].Text = _controller.CpuTemperatureText;
             _sensorValues["gpu-temp"].Text = _controller.GpuTemperatureText;
+            if (_cpuSensorSupportStatus is not null)
+                _cpuSensorSupportStatus.Text = CpuSensorSupport.GetStatusText();
             foreach (var option in _controller.SensorSourceSelections)
             {
                 if (!_sensorSourceSelectors.TryGetValue(option.Key, out ComboBox? selector)) continue;
@@ -254,7 +271,6 @@ public partial class LcdStudioWindow : Window
         var content = NewPage("Painel LCD e conexão", "Detecção USB automática e mídias de inicialização do Pro Flow 360.");
         _deviceValues["connection"] = AddTextCard(content, "TELA USB", _controller.PanelDetectionText);
         _deviceValues["description"] = AddTextCard(content, "IDENTIFICAÇÃO DO PAINEL", _controller.PanelDescription);
-
         var originalProgramActions = new WrapPanel();
         _stopTransmissionButton = ActionButton("Parar transmissão", (_, _) => _controller.StopFromStudio());
         _stopTransmissionButton.IsEnabled = _controller.TransmissionActive;
@@ -297,18 +313,169 @@ public partial class LcdStudioWindow : Window
         AddCard(content, firmwareCard);
 
         var media = new StackPanel();
-        media.Children.Add(SectionLabel("MÍDIA DE INICIALIZAÇÃO"));
-        media.Children.Add(ActionButton("Escolher arquivo…", (_, _) => _controller.ChooseStartupMediaFromStudio()));
-        media.Children.Add(ActionButton("Enviar ao painel", (_, _) => _controller.UploadStartupMediaFromStudio()));
-        media.Children.Add(SectionLabel("MÍDIA DE ESPERA"));
-        media.Children.Add(ActionButton("Escolher arquivo…", (_, _) => _controller.ChooseStandbyMediaFromStudio()));
-        media.Children.Add(ActionButton("Enviar ao painel", (_, _) => _controller.UploadStandbyMediaFromStudio()));
+        media.Children.Add(SectionLabel("MÍDIAS DO PAINEL"));
+        media.Children.Add(new TextBlock
+        {
+            Text = "Escolher um arquivo só mostra uma prévia neste PC. A gravação começa apenas ao clicar em Enviar ao painel. Durante o envio, a transmissão ao vivo é pausada e o controlador reinicia.",
+            Foreground = Brush("MutedBrush"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 4, 12)
+        });
+        _startupMediaPreview = BuildPanelMediaPreview(media, standby: false);
+        media.Children.Add(new Border { Height = 1, Background = Brush("PanelBorderBrush"), Margin = new Thickness(0, 3, 0, 4) });
+        _standbyMediaPreview = BuildPanelMediaPreview(media, standby: true);
+        var mediaLimits = new StackPanel { Margin = new Thickness(4, 4, 4, 2) };
+        mediaLimits.Children.Add(new TextBlock { Text = "FORMATOS E LIMITES", FontWeight = FontWeights.SemiBold, Foreground = Brush("MutedBrush"), Margin = new Thickness(0, 4, 0, 6) });
+        mediaLimits.Children.Add(new TextBlock
+        {
+            Text = "O seletor oferece JPG/JPEG, PNG, BMP, GIF, WebP e RGB565. O app envia os bytes originais; não converte nem valida o conteúdo. O projeto não confirma quais formatos, dimensões ou tamanho máximo o firmware aceita para estas mídias. 960 × 480 é a resolução do painel, não uma regra confirmada para o arquivo. O limite de 4 GiB do protocolo também não confirma a capacidade da memória do painel.",
+            Foreground = Brush("MutedBrush"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
+        });
+        mediaLimits.Children.Add(new TextBlock
+        {
+            Text = "A prévia apenas confirma que o Windows conseguiu decodificar o arquivo; não garante que o painel vá exibi-lo. Este envio grava mídia e reinicia o controlador, mas não atualiza o firmware. Prefira um arquivo confiável e validado pelo software original.",
+            Foreground = Brush("MutedBrush"), TextWrapping = TextWrapping.Wrap
+        });
+        media.Children.Add(mediaLimits);
         _mediaStatus = new TextBlock { Text = _controller.MediaUploadStatus, Foreground = Brush("MutedBrush"), Margin = new Thickness(0, 10, 0, 0) };
         _mediaProgress = new ProgressBar { Minimum = 0, Maximum = 100, Value = _controller.MediaUploadProgress, Height = 5, Margin = new Thickness(0, 8, 0, 0) };
         media.Children.Add(_mediaStatus);
         media.Children.Add(_mediaProgress);
         AddCard(content, media);
         return Scroll(content);
+    }
+
+    private PanelMediaPreview BuildPanelMediaPreview(Panel parent, bool standby)
+    {
+        var section = new StackPanel();
+        section.Children.Add(SectionLabel(standby ? "MÍDIA DE ESPERA" : "MÍDIA DE INICIALIZAÇÃO"));
+        section.Children.Add(new TextBlock
+        {
+            Text = standby
+                ? "Destino: mídia de espera do painel."
+                : "Destino: mídia de inicialização do painel.",
+            Foreground = Brush("MutedBrush"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 4, 8)
+        });
+
+        var row = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(184) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var previewImage = new Image
+        {
+            Stretch = Stretch.Uniform,
+            MaxWidth = 172,
+            MaxHeight = 112,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed
+        };
+        var previewHint = new TextBlock
+        {
+            Text = "Nenhuma prévia disponível",
+            Foreground = Brush("MutedBrush"), TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(10)
+        };
+        var previewHost = new Grid { MinHeight = 124 };
+        previewHost.Children.Add(previewImage);
+        previewHost.Children.Add(previewHint);
+        var previewBorder = new Border
+        {
+            Background = Brush("CanvasBrush"), BorderBrush = Brush("PanelBorderBrush"),
+            BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8),
+            Child = previewHost, Margin = new Thickness(0, 0, 12, 0)
+        };
+        row.Children.Add(previewBorder);
+
+        var fileDetails = new TextBlock
+        {
+            Text = "Nenhuma mídia selecionada",
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = Brush("MutedBrush"),
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        var actions = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+        if (standby)
+        {
+            actions.Children.Add(ActionButton("Escolher arquivo…", (_, _) => _controller.ChooseStandbyMediaFromStudio()));
+            actions.Children.Add(ActionButton("Enviar ao painel", (_, _) => _controller.UploadStandbyMediaFromStudio(), primary: true));
+        }
+        else
+        {
+            actions.Children.Add(ActionButton("Escolher arquivo…", (_, _) => _controller.ChooseStartupMediaFromStudio()));
+            actions.Children.Add(ActionButton("Enviar ao painel", (_, _) => _controller.UploadStartupMediaFromStudio(), primary: true));
+        }
+        var detailsAndActions = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        detailsAndActions.Children.Add(fileDetails);
+        detailsAndActions.Children.Add(actions);
+        Grid.SetColumn(detailsAndActions, 1);
+        row.Children.Add(detailsAndActions);
+        section.Children.Add(row);
+        parent.Children.Add(section);
+        return new PanelMediaPreview(previewImage, fileDetails, previewHint);
+    }
+
+    private void RefreshPanelMediaPreview(bool standby)
+    {
+        PanelMediaPreview? preview = standby ? _standbyMediaPreview : _startupMediaPreview;
+        if (preview is null) return;
+        string? path = standby ? _controller.StandbyMediaPath : _controller.StartupMediaPath;
+        string description = standby ? _controller.StandbyMediaDescription : _controller.StartupMediaDescription;
+        if (string.Equals(path, preview.LoadedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            preview.Details.Text = preview.PreviewDimensions is null ? description : $"{description}\n{preview.PreviewDimensions}";
+            return;
+        }
+
+        preview.LoadedPath = path;
+        preview.PreviewDimensions = null;
+        preview.Details.Text = description;
+        preview.Image.Source = null;
+        preview.Image.Visibility = Visibility.Collapsed;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            preview.Hint.Text = "Nenhuma prévia disponível";
+            preview.Hint.Visibility = Visibility.Visible;
+            return;
+        }
+
+        try
+        {
+            using var metadataStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            BitmapDecoder decoder = BitmapDecoder.Create(metadataStream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+            if (decoder.Frames.Count == 0) throw new InvalidDataException("No image frame was found.");
+            BitmapFrame frame = decoder.Frames[0];
+            int pixelWidth = frame.PixelWidth;
+            int pixelHeight = frame.PixelHeight;
+            if (pixelWidth <= 0 || pixelHeight <= 0 || (long)pixelWidth * pixelHeight > 100_000_000)
+                throw new InvalidDataException("Image dimensions are not suitable for a local preview.");
+
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+            if (pixelWidth / (double)pixelHeight >= 172d / 112d)
+                bitmap.DecodePixelWidth = Math.Min(pixelWidth, 172);
+            else
+                bitmap.DecodePixelHeight = Math.Min(pixelHeight, 112);
+            using (var imageStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            {
+                bitmap.StreamSource = imageStream;
+                bitmap.EndInit();
+            }
+            bitmap.Freeze();
+            preview.Image.Source = bitmap;
+            preview.Image.Visibility = Visibility.Visible;
+            preview.PreviewDimensions = $"{AppLanguage.Translate("Prévia local")}: {pixelWidth} × {pixelHeight} px";
+            preview.Details.Text = $"{description}\n{preview.PreviewDimensions}";
+            preview.Hint.Visibility = Visibility.Collapsed;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or NotSupportedException or ArgumentException or InvalidDataException or FileFormatException)
+        {
+            preview.Hint.Text = "O Windows não conseguiu gerar uma prévia deste arquivo. Isso não confirma se o painel aceita o formato.";
+            preview.Hint.Visibility = Visibility.Visible;
+        }
     }
 
     private UIElement BuildMultiScreenPage()
@@ -478,6 +645,18 @@ public partial class LcdStudioWindow : Window
         AddSensorMetric(metrics, "Temperatura da CPU", "cpu-temp", _controller.CpuTemperatureText, "Sensor disponível");
         AddSensorMetric(metrics, "Temperatura da GPU", "gpu-temp", _controller.GpuTemperatureText, "Sensor disponível");
         AddCard(content, metrics);
+        var cpuSensorSupport = new StackPanel();
+        cpuSensorSupport.Children.Add(SectionLabel("ACESSO A SENSORES DE HARDWARE"));
+        _cpuSensorSupportStatus = new TextBlock
+        {
+            Text = CpuSensorSupport.GetStatusText(),
+            Foreground = Brush("MutedBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 10)
+        };
+        cpuSensorSupport.Children.Add(_cpuSensorSupportStatus);
+        cpuSensorSupport.Children.Add(ActionButton("Configurar sensores de hardware", SetupCpuSensorClicked, primary: true));
+        AddCard(content, cpuSensorSupport);
         foreach (IGrouping<string, (string Group, string Label, string Key, string[] Options, int SelectedIndex)> group
             in _controller.SensorSourceSelections.GroupBy(option => option.Group))
         {
@@ -510,6 +689,29 @@ public partial class LcdStudioWindow : Window
         };
         content.Children.Add(note);
         return Scroll(content);
+    }
+
+    private void SetupCpuSensorClicked(object sender, RoutedEventArgs e)
+    {
+        MessageBoxResult answer = MessageBox.Show(
+            this,
+            AppLanguage.Translate("Esta ação instala o driver de baixo nível PawnIO, usado pelo leitor integrado ao app para acessar sensores que exigem acesso direto ao hardware, e ajusta para privilégios mais altos a tarefa de logon correspondente. O Windows pedirá autorização de administrador. Nenhum programa de monitoramento do fabricante será iniciado. Continuar?"),
+            AppLanguage.Translate("Configurar sensores de hardware"),
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (answer != MessageBoxResult.Yes) return;
+
+        if (_controller.StartCpuSensorSetupFromStudio(out string? error))
+        {
+            System.Windows.Application.Current.Shutdown();
+            return;
+        }
+
+        MessageBox.Show(this,
+            error ?? AppLanguage.Translate("Não foi possível iniciar a configuração dos sensores de hardware."),
+            AppLanguage.Translate("Sensores de hardware não configurados"),
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
     }
 
     private UIElement BuildSettingsPage()

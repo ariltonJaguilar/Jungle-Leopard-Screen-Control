@@ -23,6 +23,18 @@ Used for optional live hardware telemetry in LCD themes. The application uses th
 
 Some hardware sensors may require elevated access or driver support. The app leaves unavailable readings blank. Windows x64 is the default build target; builders can override `RuntimeIdentifier` for another supported Windows architecture.
 
+## PawnIO Setup 2.2.0
+
+The signed official PawnIO setup executable is embedded in the app and is extracted only after the user chooses **Set Up Hardware Sensors**. It installs the separate PawnIO kernel driver, which LibreHardwareMonitor uses for sensors that require low-level hardware access. The app verifies the setup executable against the SHA-256 below before running it. Installation requires explicit user confirmation and Windows administrator approval.
+
+- License: GNU GPL version 2 or later, with the independent-module exception in the upstream source; see `LICENSES/PawnIO-GPL-2.0.txt` and the upstream README.
+- Source: https://github.com/namazso/PawnIO/tree/2.2.0
+- Official installer release: https://github.com/namazso/PawnIO.Setup/releases/tag/2.2.0
+- Authenticode signer: `namazso.eu` (signature verified when added to this repository)
+- Bundled installer SHA-256: `1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032`
+
+The application does not bundle SystemInfos or HWiNFO libraries. HWiNFO's license requires explicit licensor approval to embed or bundle its software in third-party software.
+
 ## PresentMon 2.6.0
 
 The app bundles the PresentMon console capture executable to read frame presentation timing for the foreground application when an FPS theme sensor is in use. The broker starts only for themes that request this sensor and requests Windows elevation through UAC because PresentMon needs an ETW trace session. No separate PresentMon installation is required.

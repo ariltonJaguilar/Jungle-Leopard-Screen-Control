@@ -207,7 +207,9 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
         JsonObject[] nodes = children.OfType<JsonObject>().ToArray();
         JsonObject[] orderedNodes = nodes
             .Select((node, position) => (Node: node, Position: position))
-            .OrderBy(entry => GetNumber(entry.Node["index"], entry.Position))
+            // Match the renderer: a missing index means z-index 0, with the
+            // original array position used only as a stable tie-breaker.
+            .OrderBy(entry => GetNumber(entry.Node["index"]))
             .ThenBy(entry => entry.Position)
             .Select(entry => entry.Node)
             .ToArray();
@@ -1553,9 +1555,27 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
             return;
         }
         LayerItem? hit = null;
-        for (int i = _layers.Count - 1; i >= 0; i--)
+        // Resize adorners are drawn over every scene layer. Preserve that
+        // visual priority in the manual hit test, even when the selected item
+        // overlaps a larger background/media layer.
+        if (LayerList.SelectedItem is LayerItem selectedForResize
+            && !selectedForResize.IsLocked
+            && IsLayerVisibleOnCanvas(selectedForResize)
+            && selectedForResize.Node["children"] is JsonObject)
         {
-            LayerItem candidate = _layers[i];
+            var resizeHitBounds = GetLayerBounds(selectedForResize);
+            if (resizeHitBounds.Width > 0 && resizeHitBounds.Height > 0
+                && GetResizeEdges(ToLayerLocalPoint(point, selectedForResize, resizeHitBounds),
+                    resizeHitBounds.Width, resizeHitBounds.Height) != ResizeEdges.None)
+                hit = selectedForResize;
+        }
+
+        // .ht layers are painted from larger to smaller indexes, so smaller
+        // indexes are visually in front. Walk the actual paint order, including
+        // grouped and nested layers, from front to back.
+        foreach (LayerItem candidate in GetCanvasHitTestOrder())
+        {
+            if (hit is not null) break;
             if (!IsLayerVisibleOnCanvas(candidate)) continue;
             if (candidate.Node["children"] is not JsonObject p) continue;
             var bounds = GetLayerBounds(candidate);
@@ -1601,6 +1621,80 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
         _dragging = true;
         EditorOverlay.CaptureMouse();
         e.Handled = true;
+    }
+
+    private IReadOnlyList<LayerItem> GetCanvasHitTestOrder()
+    {
+        var ordered = new List<LayerItem>(_layers.Count);
+        var visited = new HashSet<JsonObject>(ReferenceEqualityComparer.Instance);
+
+        if (_definition["children"] is JsonArray root)
+            AppendSceneScope(root);
+
+        // Keep malformed or unusually structured package nodes selectable too.
+        foreach (LayerItem item in _layers.OrderBy(LayerIndex).ThenBy(LayerPosition))
+            AppendNestedNode(item);
+
+        return ordered;
+
+        void AppendSceneScope(JsonArray nodes)
+        {
+            LayerItem[] siblings = GetLayersInFrontToBackOrder(nodes).ToArray();
+            HashSet<string> groupIds = siblings
+                .Where(item => Text(item.Node["type"]).Equals("group", StringComparison.OrdinalIgnoreCase))
+                .Select(item => Text(item.Node["id"]))
+                .Where(id => id.Length > 0)
+                .ToHashSet(StringComparer.Ordinal);
+
+            foreach (LayerItem item in siblings.Where(item =>
+                         !groupIds.Contains(Text(item.Node["parentId"]))))
+                AppendSceneEntry(item, siblings);
+        }
+
+        void AppendSceneEntry(LayerItem item, LayerItem[] siblings)
+        {
+            if (!visited.Add(item.Node)) return;
+
+            string id = Text(item.Node["id"]);
+            if (Text(item.Node["type"]).Equals("group", StringComparison.OrdinalIgnoreCase) && id.Length > 0)
+            {
+                // DrawOrderedSceneNodes renders a group's parent-linked children
+                // after the group itself; reverse that order for hit testing.
+                foreach (LayerItem child in GetLayersInFrontToBackOrder(siblings.Where(candidate =>
+                             Text(candidate.Node["parentId"]).Equals(id, StringComparison.Ordinal))))
+                    AppendSceneEntry(child, siblings);
+            }
+
+            if (item.Node["children"] is JsonArray nested)
+                foreach (LayerItem child in GetLayersInFrontToBackOrder(nested))
+                    AppendNestedNode(child);
+
+            ordered.Add(item);
+        }
+
+        void AppendNestedNode(LayerItem item)
+        {
+            if (!visited.Add(item.Node)) return;
+            if (item.Node["children"] is JsonArray nested)
+                foreach (LayerItem child in GetLayersInFrontToBackOrder(nested))
+                    AppendNestedNode(child);
+            ordered.Add(item);
+        }
+    }
+
+    private IEnumerable<LayerItem> GetLayersInFrontToBackOrder(JsonArray nodes)
+        => GetLayersInFrontToBackOrder(_layers.Where(item => ReferenceEquals(item.Parent, nodes)));
+
+    private static IEnumerable<LayerItem> GetLayersInFrontToBackOrder(IEnumerable<LayerItem> items)
+        => items.OrderBy(LayerIndex).ThenBy(LayerPosition);
+
+    private static double LayerIndex(LayerItem item) => GetNumber(item.Node["index"]);
+
+    private static int LayerPosition(LayerItem item)
+    {
+        for (int index = 0; index < item.Parent.Count; index++)
+            if (ReferenceEquals(item.Parent[index], item.Node)) return index;
+        return int.MaxValue;
     }
 
     private bool IsLayerVisibleOnCanvas(LayerItem item)
@@ -1944,7 +2038,10 @@ public partial class HtThemeEditorWindow : System.Windows.Controls.UserControl
     private static ResizeEdges GetResizeEdges(System.Windows.Point localPoint, double width, double height)
     {
         const double edgeDistance = 12;
-        if (width <= 0 || height <= 0 || localPoint.X < 0 || localPoint.X > width || localPoint.Y < 0 || localPoint.Y > height)
+        const double handleOverflow = 6;
+        if (width <= 0 || height <= 0
+            || localPoint.X < -handleOverflow || localPoint.X > width + handleOverflow
+            || localPoint.Y < -handleOverflow || localPoint.Y > height + handleOverflow)
             return ResizeEdges.None;
         bool nearLeft = localPoint.X <= edgeDistance;
         bool nearRight = width - localPoint.X <= edgeDistance;
